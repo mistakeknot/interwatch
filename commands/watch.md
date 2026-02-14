@@ -1,0 +1,29 @@
+---
+name: watch
+description: Run a drift scan across all watched documents — detects changes, scores confidence, and reports which docs may need refreshing
+---
+
+# Drift Scan
+
+Run the `doc-watch` skill in **scan** mode.
+
+This will:
+1. Load the watchables registry from `config/watchables.yaml`
+2. For each watchable whose path exists in the project:
+   - Evaluate all configured signals
+   - Compute a drift score and confidence tier
+3. Display results as a table:
+
+```
+Doc Watch — Drift Scan
+────────────────────────────────────
+roadmap     docs/roadmap.md        [Green|Low|Medium|High|Certain]  score: N
+prd         docs/PRD.md            [Green|Low|Medium|High|Certain]  score: N
+vision      docs/vision.md         [Green|Low|Medium|High|Certain]  score: N
+agents-md   AGENTS.md              [Green|Low|Medium|High|Certain]  score: N
+────────────────────────────────────
+```
+
+4. For Medium/High/Certain items, suggest or auto-invoke the appropriate generator
+
+Use the Skill tool to invoke `interwatch:doc-watch` with the instruction: "Run a drift scan in scan mode."
