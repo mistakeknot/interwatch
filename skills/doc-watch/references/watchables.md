@@ -22,8 +22,8 @@ watchables:
 
 | Generator | Plugin | Produces |
 |-----------|--------|----------|
-| `interpath:artifact-gen` | Interpath | Roadmap, PRD, Vision, Changelog, Status |
-| `interdoc:interdoc` | Interdoc | AGENTS.md, CLAUDE.md |
+| `interpath:artifact-gen` | interpath | Roadmap, PRD, Vision, Changelog, Status |
+| `interdoc:interdoc` | interdoc | AGENTS.md, CLAUDE.md |
 
 ## Built-in Watchables
 
@@ -31,7 +31,7 @@ The default `config/watchables.yaml` ships with entries for common docs. Project
 
 ## Discovery
 
-When Interwatch runs, it:
+When interwatch runs, it:
 1. Reads `config/watchables.yaml` from its own plugin directory (defaults)
 2. Reads `.interwatch/watchables.yaml` from the project root (overrides)
 3. Merges: project overrides win for same-named watchables

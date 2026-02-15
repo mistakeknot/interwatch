@@ -1,6 +1,6 @@
-# Interwatch
+# interwatch
 
-Doc freshness monitoring for Claude Code — detects drift between project state and documentation, scores confidence, and orchestrates refresh via generator plugins (Interpath for product docs, Interdoc for code docs).
+Doc freshness monitoring for Claude Code — detects drift between project state and documentation, scores confidence, and orchestrates refresh via generator plugins (interpath for product docs, interdoc for code docs).
 
 Companion plugin for [Clavain](https://github.com/mistakeknot/Clavain).
 
@@ -20,21 +20,21 @@ claude plugin install interwatch@interagency-marketplace
 
 ## How It Works
 
-Interwatch maintains a registry of **watchables** — documents that can be monitored for drift. Each watchable has:
+interwatch maintains a registry of **watchables** — documents that can be monitored for drift. Each watchable has:
 
 - A **path** (where the doc lives)
 - A **generator** (which plugin regenerates it)
 - **Signals** (events that cause drift: beads closed, files renamed, version bumped)
 - **Staleness threshold** (days before a doc is considered stale)
 
-When drift is detected, Interwatch scores confidence and either:
+When drift is detected, interwatch scores confidence and either:
 - **Auto-refreshes** (Certain/High confidence — deterministic signals)
 - **Suggests refresh** (Medium confidence — may be intentional)
 - **Reports only** (Low confidence — possibly noise)
 
 ## Hook Integration
 
-Interwatch can be auto-triggered from a Claude Code Stop hook when shipped work is detected. See `examples/hooks/auto-drift-check-example.sh` for a standalone example.
+interwatch can be auto-triggered from a Claude Code Stop hook when shipped work is detected. See `examples/hooks/auto-drift-check-example.sh` for a standalone example.
 
 The example hook:
 - Detects work signals (git commits, bead closures, version bumps) in the conversation transcript

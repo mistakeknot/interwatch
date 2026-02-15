@@ -1,4 +1,4 @@
-"""Tests for Interwatch command structure."""
+"""Tests for interwatch command structure."""
 
 from pathlib import Path
 

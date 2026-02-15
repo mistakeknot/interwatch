@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bash library for Interwatch drift detection.
+# Bash library for interwatch drift detection.
 # Sourced by skills, not used as a hook handler.
 # All functions are prefixed with _watch_ to avoid namespace collisions.
 

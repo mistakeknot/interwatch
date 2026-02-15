@@ -1,14 +1,14 @@
-# Interwatch — Development Guide
+# interwatch — Development Guide
 
 ## Architecture
 
-Interwatch is a doc freshness monitoring system for Claude Code. It abstracts the pattern: "has something changed in the project that makes this document outdated?"
+interwatch is a doc freshness monitoring system for Claude Code. It abstracts the pattern: "has something changed in the project that makes this document outdated?"
 
 ### Core Abstractions
 
 - **Watchable** — a document that can be monitored (roadmap, PRD, AGENTS.md, etc.)
 - **Signal** — an event that might cause drift (bead closed, file renamed, version bumped)
-- **Generator** — the plugin that regenerates the doc (Interpath or Interdoc)
+- **Generator** — the plugin that regenerates the doc (interpath or interdoc)
 - **Confidence Tier** — how certain we are that drift occurred (Certain/High/Medium/Low)
 
 ### Skill: doc-watch
@@ -55,7 +55,7 @@ Per-project state in `.interwatch/` (gitignored):
 ## Testing
 
 ```bash
-cd /root/projects/interwatch
+cd /root/projects/Interverse/plugins/interwatch
 uv run pytest tests/structural/ -v
 ```
 
@@ -69,5 +69,5 @@ uv run pytest tests/structural/ -v
 
 1. Edit skill/command/config files
 2. Run structural tests: `uv run pytest tests/structural/ -v`
-3. Test locally: `claude --plugin-dir /root/projects/interwatch`
+3. Test locally: `claude --plugin-dir /root/projects/Interverse/plugins/interwatch`
 4. Bump version and publish: `scripts/bump-version.sh <version>`

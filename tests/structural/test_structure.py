@@ -1,4 +1,4 @@
-"""Tests for Interwatch plugin structure."""
+"""Tests for interwatch plugin structure."""
 
 import json
 import subprocess

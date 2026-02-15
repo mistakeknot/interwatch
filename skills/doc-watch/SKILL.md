@@ -1,6 +1,6 @@
 ---
 name: doc-watch
-description: Detect documentation drift, score confidence, and orchestrate refresh via generator plugins (Interpath for product docs, Interdoc for code docs)
+description: Detect documentation drift, score confidence, and orchestrate refresh via generator plugins (interpath for product docs, interdoc for code docs)
 ---
 
 # Doc Watch

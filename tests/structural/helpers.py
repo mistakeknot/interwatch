@@ -1,4 +1,4 @@
-"""Shared helpers for Interwatch structural tests."""
+"""Shared helpers for interwatch structural tests."""
 
 import yaml
 
