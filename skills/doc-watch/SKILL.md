@@ -5,6 +5,8 @@ description: Detect documentation drift, score confidence, and orchestrate refre
 
 # Doc Watch
 
+<!-- compact: SKILL-compact.md — if it exists in this directory, load it instead of following the multi-file instructions below. The compact version contains the same algorithm in a single file with pre-computed signal evaluation. -->
+
 You are monitoring documentation freshness. Follow these steps.
 
 ## Step 1: Load Watchables
