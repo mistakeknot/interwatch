@@ -15,7 +15,7 @@ claude plugin install interwatch@interagency-marketplace
 | Command | Description |
 |---------|-------------|
 | `/interwatch:watch` | Run drift scan across all watched docs |
-| `/interwatch:status` | Show current drift health scores |
+| `/interwatch:interwatch-status` | Show current drift health scores |
 | `/interwatch:refresh` | Force regeneration of a specific doc |
 
 ## How It Works

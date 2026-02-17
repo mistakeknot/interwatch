@@ -1,0 +1,15 @@
+{
+  "module_summary": "Interwatch monitors documentation freshness and confidence so stale artifacts are identified before they mislead decisions.",
+  "roadmap": {
+    "now": [
+      {"id": "IWTC-N1", "title": "Improve drift scoring for mixed-format source files and generated artifacts.", "priority": "P1"}
+    ],
+    "next": [
+      {"id": "IWTC-N2", "title": "Add actionable auto-refinement suggestions and safe repair paths.", "priority": "P2"},
+      {"id": "IWTC-N3", "title": "Integrate freshness signals into Clavain discovery and sprint summaries.", "priority": "P2"},
+      {"id": "IWTC-L1", "title": "Create policy-driven escalation for critical or high-impact stale content.", "priority": "P3"}
+    ],
+    "later": [
+    ]
+  }
+}
