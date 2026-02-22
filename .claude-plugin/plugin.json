@@ -13,5 +13,13 @@
     "maintenance",
     "auto-refresh",
     "monitoring"
+  ],
+  "skills": [
+    "./skills/doc-watch"
+  ],
+  "commands": [
+    "./commands/refresh.md",
+    "./commands/status.md",
+    "./commands/watch.md"
   ]
 }
