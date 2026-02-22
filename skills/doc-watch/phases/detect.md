@@ -70,7 +70,7 @@ For each watchable, produce a signal report:
 
 ```
 watchable: roadmap
-path: docs/roadmap.md
+path: docs/myproject-roadmap.md
 signals:
   bead_closed: 3 (weight 2, score 6)
   version_bump: 0 (weight 3, score 0)

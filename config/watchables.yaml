@@ -1,3 +1,8 @@
+# Default watchables — generic paths suitable for single-module repos.
+# Projects can override by creating .interwatch/watchables.yaml in the project root.
+# Per CONVENTIONS.md, monorepos should use namespaced paths:
+#   docs/<module>-roadmap.md, docs/<module>-vision.md, docs/prds/*.md
+
 watchables:
   - name: roadmap
     path: docs/roadmap.md
