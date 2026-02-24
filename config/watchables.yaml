@@ -21,6 +21,12 @@ watchables:
       - type: brainstorm_created
         weight: 1
         description: "New brainstorm may inform research agenda"
+      - type: roadmap_bead_coverage
+        weight: 3
+        description: "Roadmap IDs missing beads or open beads missing from roadmap"
+        checker: _watch_roadmap_bead_coverage
+        threshold_field: coverage_pct
+        threshold_min: 95
     staleness_days: 7
 
   - name: prd

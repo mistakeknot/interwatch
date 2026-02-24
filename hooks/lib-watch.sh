@@ -72,3 +72,43 @@ _watch_file_changes() {
 _watch_newer_brainstorms() {
     find docs/brainstorms/ -name "*.md" -newer "$1" 2>/dev/null | wc -l | tr -d ' '
 }
+
+# Check roadmap-bead coverage using the audit script.
+# Returns JSON with coverage_pct and confidence level.
+# Usage: _watch_roadmap_bead_coverage [roadmap_path]
+# Confidence mapping:
+#   green  — 100% coverage, all roadmap IDs have beads
+#   blue   — >95% coverage, minor gaps
+#   yellow — 80-95% coverage
+#   orange — <80% coverage
+#   red    — audit script or beads database unreachable
+_watch_roadmap_bead_coverage() {
+    local roadmap="${1:-}"
+    local repo_root
+    repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    local script="$repo_root/scripts/audit-roadmap-beads.sh"
+
+    if [[ ! -x "$script" ]]; then
+        echo '{"coverage_pct":0,"confidence":"red","error":"audit script not found"}'
+        return 1
+    fi
+
+    if ! command -v bd >/dev/null 2>&1; then
+        echo '{"coverage_pct":0,"confidence":"red","error":"bd command not available"}'
+        return 1
+    fi
+
+    local result
+    if [[ -n "$roadmap" ]]; then
+        result=$("$script" --json "$roadmap" 2>/dev/null)
+    else
+        result=$("$script" --json 2>/dev/null)
+    fi
+
+    if [[ $? -ne 0 ]] || [[ -z "$result" ]]; then
+        echo '{"coverage_pct":0,"confidence":"red","error":"audit script failed"}'
+        return 1
+    fi
+
+    echo "$result"
+}
