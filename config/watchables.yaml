@@ -77,3 +77,20 @@ watchables:
         description: "Accumulated changes may drift docs"
         threshold: 20
     staleness_days: 14
+
+  - name: distillation-candidates
+    path: docs/solutions/
+    generator: null
+    generator_args: {}
+    signals:
+      - type: unsynthesized_doc_count
+        weight: 2
+        description: "Solution docs without synthesized_into that are >14 days old"
+        checker: _watch_unsynthesized_count
+        threshold: 5
+      - type: skills_without_compact
+        weight: 1
+        description: "SKILL.md files >90 lines lacking SKILL-compact.md companion"
+        checker: _watch_skills_without_compact
+        threshold: 3
+    staleness_days: 30
