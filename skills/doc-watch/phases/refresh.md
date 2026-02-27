@@ -41,16 +41,18 @@ Before applying a refresh:
 
 ## State Update
 
-After any action (including "no action needed"), update `.interwatch/`:
+State is managed automatically by the scanner:
 
-- `drift.json` — current scores for all watchables
-- `history.json` — append refresh event if refreshed
-- `last-scan.json` — update snapshot timestamp and signal baselines
+- **`--save-state`** (on scan): Writes `drift.json` (full scan results) and `last-scan.json` (bead count baselines per doc).
+- **`--record-refresh <name>`** (after refresh): Resets bead count baselines for the refreshed doc so the next scan sees zero delta.
+
+After invoking a generator for any watchable, always record the refresh:
 
 ```bash
-mkdir -p .interwatch
-# State files are JSON, created/updated by this phase
+python3 scripts/interwatch-scan.py --record-refresh <watchable-name>
 ```
+
+This prevents false positives on the next scan — without it, bead_closed/bead_created signals would fire against stale baselines.
 
 ## Force Refresh
 

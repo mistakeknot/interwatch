@@ -4,10 +4,16 @@
 Reads watchables.yaml, evaluates signals using shell commands,
 and outputs JSON with drift scores and confidence tiers.
 
+Uses .interwatch/last-scan.json as a baseline for snapshot-delta
+signals (bead_closed, bead_created) to avoid false positives after
+a refresh. Run with --save-state to persist baselines after scanning.
+
 Usage:
     python3 interwatch-scan.py                          # Use config/watchables.yaml
     python3 interwatch-scan.py --config path/to/w.yaml  # Custom config
     python3 interwatch-scan.py --check docs/roadmap.md  # Check single doc
+    python3 interwatch-scan.py --save-state             # Persist baselines after scan
+    python3 interwatch-scan.py --record-refresh roadmap # Reset baselines for a doc
 """
 
 import argparse
@@ -24,6 +30,11 @@ try:
 except ImportError:
     print("Error: PyYAML required. Install with: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
+
+
+STATE_DIR = ".interwatch"
+LAST_SCAN_FILE = os.path.join(STATE_DIR, "last-scan.json")
+DRIFT_FILE = os.path.join(STATE_DIR, "drift.json")
 
 
 def run_cmd(cmd: list[str], cwd: str | None = None) -> str:
@@ -50,29 +61,74 @@ def get_doc_date(mtime: float) -> str:
     return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
 
 
+# ─── State management ─────────────────────────────────────────────
+
+
+def load_last_scan() -> dict:
+    """Load baseline state from last-scan.json, or empty dict if missing."""
+    try:
+        with open(LAST_SCAN_FILE) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_last_scan(state: dict) -> None:
+    """Write baseline state to last-scan.json."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(LAST_SCAN_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+        f.write("\n")
+
+
+def save_drift(result: dict) -> None:
+    """Write full scan results to drift.json."""
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(DRIFT_FILE, "w") as f:
+        json.dump(result, f, indent=2)
+        f.write("\n")
+
+
+def _count_bd_lines(status: str) -> int:
+    """Count beads with a given status by counting output lines."""
+    output = run_cmd(["bd", "list", f"--status={status}"])
+    if not output:
+        return 0
+    if status == "closed":
+        return len([l for l in output.splitlines() if l.startswith("\u2713")])
+    # open: non-empty, non-warning lines
+    return len([l for l in output.splitlines() if l.strip() and not l.startswith("\u26a0")])
+
+
 # ─── Signal evaluators ──────────────────────────────────────────────
 
 
-def eval_bead_closed(doc_path: str, mtime: float) -> int:
-    """Count beads closed since doc was last modified."""
-    doc_date = get_doc_date(mtime)
-    output = run_cmd(["bd", "list", "--status=closed"])
-    if not output:
-        return 0
-    # Count lines with closed beads — rough proxy for "closed since doc_date"
-    # bd doesn't support date filtering, so we count all closed beads
-    # and compare against a snapshot (if available)
-    lines = [l for l in output.splitlines() if l.startswith("✓")]
-    return min(len(lines), 10)  # Cap at 10 to avoid score explosion
+def eval_bead_closed(doc_path: str, mtime: float, baseline: dict | None = None) -> int:
+    """Count beads closed since last scan baseline.
+
+    Uses snapshot delta: current closed count minus baseline closed count.
+    If no baseline exists, falls back to capped total (conservative).
+    """
+    current_count = _count_bd_lines("closed")
+    if baseline is not None:
+        baseline_count = baseline.get("bead_closed_count", 0)
+        delta = max(0, current_count - baseline_count)
+        return min(delta, 10)
+    return min(current_count, 10)
 
 
-def eval_bead_created(doc_path: str, mtime: float) -> int:
-    """Count open beads (proxy for new beads since doc update)."""
-    output = run_cmd(["bd", "list", "--status=open"])
-    if not output:
-        return 0
-    lines = [l for l in output.splitlines() if l.strip() and not l.startswith("⚠")]
-    return min(len(lines), 10)  # Cap at 10 to match bead_closed
+def eval_bead_created(doc_path: str, mtime: float, baseline: dict | None = None) -> int:
+    """Count new open beads since last scan baseline.
+
+    Uses snapshot delta: current open count minus baseline open count.
+    If no baseline exists, falls back to capped total (conservative).
+    """
+    current_count = _count_bd_lines("open")
+    if baseline is not None:
+        baseline_count = baseline.get("bead_created_count", 0)
+        delta = max(0, current_count - baseline_count)
+        return min(delta, 10)
+    return min(current_count, 10)
 
 
 def eval_version_bump(doc_path: str, mtime: float) -> int:
@@ -243,6 +299,9 @@ SIGNAL_EVALUATORS = {
     "research_completed": eval_research_completed,
 }
 
+# Signals that accept a baseline dict as third argument
+BASELINE_SIGNALS = {"bead_closed", "bead_created"}
+
 
 # ─── Confidence tier mapping ─────────────────────────────────────────
 
@@ -274,7 +333,7 @@ def tier_to_action(tier: str) -> str:
 
 # ─── Main scan ────────────────────────────────────────────────────────
 
-def scan_watchable(watchable: dict) -> dict:
+def scan_watchable(watchable: dict, baseline: dict | None = None) -> dict:
     """Evaluate all signals for a single watchable."""
     name = watchable["name"]
     path = watchable["path"]
@@ -304,6 +363,8 @@ def scan_watchable(watchable: dict) -> dict:
         # Handle threshold parameter for commits_since_update
         if sig_type == "commits_since_update" and "threshold" in signal_def:
             count = eval_commits_since_update(path, mtime, signal_def["threshold"])
+        elif sig_type in BASELINE_SIGNALS:
+            count = evaluator(path, mtime, baseline)
         else:
             count = evaluator(path, mtime)
 
@@ -356,14 +417,49 @@ def load_config(config_path: str | None = None) -> dict:
     sys.exit(2)
 
 
+def record_refresh(doc_name: str) -> None:
+    """Reset baselines for a specific doc after a generator refresh.
+
+    Updates last-scan.json to record that the doc was just regenerated,
+    so the next scan sees zero delta for bead counts.
+    """
+    state = load_last_scan()
+    baselines = state.get("baselines", {})
+
+    # Snapshot current bead counts as the new baseline for this doc
+    baselines[doc_name] = {
+        "refreshed_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "bead_closed_count": _count_bd_lines("closed"),
+        "bead_created_count": _count_bd_lines("open"),
+    }
+
+    state["baselines"] = baselines
+    state["last_updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    save_last_scan(state)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Pre-compute interwatch drift signals")
     parser.add_argument("--config", help="Path to watchables.yaml")
     parser.add_argument("--check", help="Check single doc path (filter output)")
+    parser.add_argument("--save-state", action="store_true",
+                        help="Write baselines to .interwatch/last-scan.json after scan")
+    parser.add_argument("--record-refresh", metavar="DOC_NAME",
+                        help="Reset baselines for a doc after refresh (e.g., 'roadmap')")
     args = parser.parse_args()
+
+    # Handle --record-refresh: update baselines and exit
+    if args.record_refresh:
+        record_refresh(args.record_refresh)
+        print(json.dumps({"recorded_refresh": args.record_refresh}))
+        return
 
     config = load_config(args.config)
     watchables = config.get("watchables", [])
+
+    # Load baseline state for snapshot-delta signals
+    last_scan = load_last_scan()
+    baselines = last_scan.get("baselines", {})
 
     result = {
         "scan_date": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -373,10 +469,33 @@ def main():
     for w in watchables:
         if args.check and w["path"] != args.check:
             continue
-        result["watchables"][w["name"]] = scan_watchable(w)
+        doc_baseline = baselines.get(w["name"])
+        result["watchables"][w["name"]] = scan_watchable(w, doc_baseline)
 
     json.dump(result, sys.stdout, indent=2)
     print()  # trailing newline
+
+    # Persist state if requested
+    if args.save_state:
+        # Update baselines with current bead counts for all scanned docs
+        closed_count = _count_bd_lines("closed")
+        open_count = _count_bd_lines("open")
+        for w in watchables:
+            if args.check and w["path"] != args.check:
+                continue
+            name = w["name"]
+            if name not in baselines:
+                baselines[name] = {}
+            baselines[name]["bead_closed_count"] = closed_count
+            baselines[name]["bead_created_count"] = open_count
+            baselines[name]["scanned_at"] = result["scan_date"]
+
+        state = {
+            "last_updated": result["scan_date"],
+            "baselines": baselines,
+        }
+        save_last_scan(state)
+        save_drift(result)
 
 
 if __name__ == "__main__":

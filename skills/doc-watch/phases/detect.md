@@ -6,18 +6,11 @@ For each watchable in the registry, evaluate its configured signals.
 
 ### bead_closed
 
-```bash
-# Count beads closed since doc was last modified
-doc_mtime=$(stat -c %Y "$DOC_PATH" 2>/dev/null || echo 0)
-doc_date=$(date -d "@$doc_mtime" +%Y-%m-%d 2>/dev/null || echo "1970-01-01")
-bd list --status=closed 2>/dev/null | grep -c "closed after $doc_date" || echo 0
-```
-
-Simplified: compare `bd stats` closed count against last-scan snapshot.
+Uses **snapshot delta**: compares current `bd list --status=closed` count against the baseline stored in `.interwatch/last-scan.json`. Only the *change* since last scan triggers drift. If no baseline exists (first run), falls back to capped total count (conservative).
 
 ### bead_created
 
-Compare current `bd list --status=open` count against last-scan snapshot.
+Same snapshot-delta approach: compares current `bd list --status=open` count against baseline from `last-scan.json`. Only new beads since last scan trigger drift.
 
 ### version_bump
 
