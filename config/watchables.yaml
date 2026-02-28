@@ -94,3 +94,79 @@ watchables:
         checker: _watch_skills_without_compact
         threshold: 3
     staleness_days: 30
+
+# ─── Signal templates ─────────────────────────────────────────────────
+# Define what signals apply to each doc type. Used by discovery rules
+# to build watchable entries for auto-discovered documents.
+
+signal_templates:
+  roadmap:
+    generator: interpath:artifact-gen
+    generator_args: { type: roadmap }
+    staleness_days: 7
+    signals:
+      - { type: bead_closed, weight: 2 }
+      - { type: bead_created, weight: 1 }
+      - { type: version_bump, weight: 3 }
+      - { type: brainstorm_created, weight: 1 }
+      - { type: roadmap_bead_coverage, weight: 3, threshold_min: 95 }
+  prd:
+    generator: interpath:artifact-gen
+    generator_args: { type: prd }
+    staleness_days: 14
+    signals:
+      - { type: component_count_changed, weight: 3 }
+      - { type: companion_extracted, weight: 3 }
+      - { type: version_bump, weight: 2 }
+  vision:
+    generator: interpath:artifact-gen
+    generator_args: { type: vision }
+    staleness_days: 30
+    signals:
+      - { type: companion_extracted, weight: 2 }
+      - { type: research_completed, weight: 1 }
+  agents-md:
+    generator: interdoc:interdoc
+    generator_args: {}
+    staleness_days: 14
+    signals:
+      - { type: file_renamed, weight: 3 }
+      - { type: file_deleted, weight: 3 }
+      - { type: file_created, weight: 2 }
+      - { type: commits_since_update, weight: 1, threshold: 20 }
+  distillation-candidates:
+    generator: null
+    generator_args: {}
+    staleness_days: 30
+    signals:
+      - { type: unsynthesized_doc_count, weight: 2, threshold: 5 }
+      - { type: skills_without_compact, weight: 1, threshold: 3 }
+
+# ─── Discovery rules ──────────────────────────────────────────────────
+# How to match files to templates during auto-discovery.
+# Evaluated in order; {module} is resolved from plugin.json or dirname.
+
+discovery_rules:
+  - pattern: "AGENTS.md"
+    template: agents-md
+    name_format: "agents-md"
+  - pattern: "docs/{module}-roadmap.md"
+    template: roadmap
+    name_format: "{module}-roadmap"
+  - pattern: "docs/roadmap.md"
+    template: roadmap
+    name_format: "roadmap"
+    skip_if_exists: "docs/{module}-roadmap.md"
+  - pattern: "docs/PRD.md"
+    template: prd
+    name_format: "prd"
+  - pattern: "docs/{module}-vision.md"
+    template: vision
+    name_format: "{module}-vision"
+  - pattern: "docs/vision.md"
+    template: vision
+    name_format: "vision"
+    skip_if_exists: "docs/{module}-vision.md"
+  - pattern: "docs/solutions/"
+    template: distillation-candidates
+    name_format: "distillation-candidates"

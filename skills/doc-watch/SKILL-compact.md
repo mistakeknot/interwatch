@@ -7,10 +7,10 @@ Monitor documentation freshness using pre-computed drift signals.
 ### Step 1: Run Pre-computation
 
 ```bash
-python3 scripts/interwatch-scan.py --config config/watchables.yaml --save-state
+python3 scripts/interwatch-scan.py --discover --save-state
 ```
 
-If a project `.interwatch/watchables.yaml` exists, it takes precedence over the plugin's default config.
+This auto-discovers watchable docs on first run and caches the config in `.interwatch/watchables.yaml`. Use `--rediscover` to force re-detection after adding new docs. Use `--discover-only` to write config without scanning.
 
 The `--save-state` flag persists baselines to `.interwatch/last-scan.json` so subsequent scans use snapshot deltas instead of absolute counts (prevents false positives after a refresh).
 

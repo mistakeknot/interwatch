@@ -1,15 +1,24 @@
 {
-  "module_summary": "Interwatch monitors documentation freshness and confidence so stale artifacts are identified before they mislead decisions.",
+  "module_summary": "Interwatch monitors documentation freshness — auto-discovers watchable docs by convention, detects drift via 14 signal types, scores confidence, and dispatches to generators for refresh.",
   "roadmap": {
     "now": [
-      {"id": "IWTC-N1", "title": "Improve drift scoring for mixed-format source files and generated artifacts.", "priority": "P1"}
+      {"id": "IWTC-N4", "title": "Cross-project scanning: run discovery across all monorepo subprojects in one invocation.", "priority": "P1"},
+      {"id": "IWTC-N5", "title": "Drift trend tracking: historical score progression over time.", "priority": "P2"}
     ],
     "next": [
-      {"id": "IWTC-N2", "title": "Add actionable auto-refinement suggestions and safe repair paths.", "priority": "P2"},
-      {"id": "IWTC-N3", "title": "Integrate freshness signals into Clavain discovery and sprint summaries.", "priority": "P2"},
-      {"id": "IWTC-L1", "title": "Create policy-driven escalation for critical or high-impact stale content.", "priority": "P3"}
+      {"id": "IWTC-N6", "title": "Generator availability awareness: graceful degradation and install suggestions when interpath/interdoc missing.", "priority": "P2"},
+      {"id": "IWTC-N7", "title": "Ambient mode (opt-in): periodic scan at Clavain session checkpoints.", "priority": "P3"},
+      {"id": "IWTC-L1", "title": "Policy-driven escalation for critical or high-impact stale content.", "priority": "P3"}
     ],
     "later": [
+    ],
+    "done": [
+      {"id": "IWTC-D1", "title": "Three-phase skill (detect/assess/refresh) with phase files and reference docs."},
+      {"id": "IWTC-D2", "title": "watchables.yaml with default entries for Vision, PRD, Roadmap, AGENTS.md, distillation-candidates."},
+      {"id": "IWTC-D3", "title": "Bead-count baseline tracking with snapshot-delta signals and --record-refresh reset."},
+      {"id": "IWTC-D4", "title": "Pre-computation scanner (interwatch-scan.py) with 14 signal evaluators."},
+      {"id": "IWTC-D5", "title": "Auto-discovery: convention-based watchable detection with signal_templates, discovery_rules, dedup, manual entry preservation."},
+      {"id": "IWTC-N1", "title": "Improved drift scoring with threshold refactoring (THRESHOLD_SIGNALS dispatch table)."}
     ]
   }
 }

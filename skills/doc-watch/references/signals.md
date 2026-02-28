@@ -17,6 +17,9 @@ Signals are events that indicate potential documentation drift.
 | `brainstorm_created` | `find docs/brainstorms/ -newer $DOC` | Free (find) | 1 |
 | `companion_extracted` | plugin cache search for new companions | Free (find) | 2-3 |
 | `research_completed` | new flux-drive summaries since doc mtime | Free (find) | 1-2 |
+| `roadmap_bead_coverage` | `_watch_roadmap_bead_coverage` via lib-watch.sh | Free (bash+bd) | 2-3 |
+| `unsynthesized_doc_count` | YAML frontmatter scan of `docs/solutions/` | Free (file read) | 1-2 |
+| `skills_without_compact` | Glob `skills/*/SKILL.md` vs `SKILL-compact.md` | Free (glob) | 1 |
 
 ## Signal Categories
 

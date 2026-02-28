@@ -51,6 +51,40 @@ def test_watchables_yaml_valid(project_root):
         assert "signals" in w, f"Watchable missing 'signals': {w}"
         assert "staleness_days" in w, f"Watchable missing 'staleness_days': {w}"
 
+    # Validate signal_templates section
+    assert "signal_templates" in data, "Missing signal_templates section"
+    templates = data["signal_templates"]
+    assert len(templates) > 0, "signal_templates is empty"
+
+    # Load the scanner to get valid signal types
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "interwatch_scan",
+        str(project_root / "scripts" / "interwatch-scan.py"),
+    )
+    scan_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scan_mod)
+    valid_signals = set(scan_mod.SIGNAL_EVALUATORS.keys())
+
+    for tname, template in templates.items():
+        assert "staleness_days" in template, f"Template '{tname}' missing staleness_days"
+        assert "signals" in template, f"Template '{tname}' missing signals"
+        for sig in template["signals"]:
+            assert sig["type"] in valid_signals, (
+                f"Template '{tname}' references unknown signal '{sig['type']}'"
+            )
+
+    # Validate discovery_rules section
+    assert "discovery_rules" in data, "Missing discovery_rules section"
+    rules = data["discovery_rules"]
+    assert len(rules) > 0, "discovery_rules is empty"
+    for rule in rules:
+        assert "pattern" in rule, f"Discovery rule missing 'pattern': {rule}"
+        assert "template" in rule, f"Discovery rule missing 'template': {rule}"
+        assert rule["template"] in templates, (
+            f"Discovery rule references unknown template '{rule['template']}'"
+        )
+
 
 def test_claude_md_exists(project_root):
     """CLAUDE.md exists."""

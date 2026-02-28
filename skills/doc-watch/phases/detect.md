@@ -57,6 +57,23 @@ find docs/brainstorms/ -name "*.md" -newer "$DOC_PATH" 2>/dev/null | wc -l | tr 
 
 Check plugin cache for companion plugins not mentioned in the doc.
 
+### roadmap_bead_coverage
+
+Sources `_watch_roadmap_bead_coverage` from `hooks/lib-watch.sh` via bash subprocess. Parses the JSON result and checks `coverage_pct` against `threshold_min` (default 95%). Returns 1 if coverage is below threshold, 0 otherwise. Gracefully returns 0 if the audit script or `bd` command is not available.
+
+```bash
+source hooks/lib-watch.sh && _watch_roadmap_bead_coverage "$DOC_PATH"
+# Returns JSON: {"coverage_pct": 92, "confidence": "yellow", ...}
+```
+
+### unsynthesized_doc_count
+
+Walks `docs/solutions/` recursively for `.md` files. Skips `INDEX.md` and `TEMPLATE.md`. Skips files newer than 14 days (too recent to expect synthesis). Parses YAML frontmatter — files with a `synthesized_into` field are considered synthesized. Returns 1 if unsynthesized count >= threshold (default 5), else 0.
+
+### skills_without_compact
+
+Globs `skills/*/SKILL.md` files. Counts those with >90 lines that lack a sibling `SKILL-compact.md`. Returns 1 if count >= threshold (default 3), else 0.
+
 ## Output
 
 For each watchable, produce a signal report:

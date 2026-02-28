@@ -1,11 +1,11 @@
 # interwatch — Vision and Philosophy
 
-**Version:** 0.1.0
-**Last updated:** 2026-02-28
+**Version:** 0.1.8
+**Last updated:** 2026-02-27
 
 ## What interwatch Is
 
-interwatch monitors documentation freshness across a project's key artifacts. It watches a configurable set of documents — Vision, PRD, Roadmap, AGENTS.md, CLAUDE.md — and evaluates whether project activity since the last update constitutes evidence of drift. Signals include beads closed, files renamed or deleted, commits since last update, version bumps, and component count changes. These are combined into a weighted drift score that maps to a confidence tier: Green (current), Low, Medium, High, or Certain. Confidence determines action — from silent auto-refresh at Certain down to report-only at Low.
+interwatch monitors documentation freshness across a project's key artifacts. It auto-discovers watchable documents by convention — Vision, PRD, Roadmap, AGENTS.md, solution docs — and evaluates whether project activity since the last update constitutes evidence of drift. 14 signal types detect changes: beads closed, files renamed or deleted, commits since last update, version bumps, component count changes, roadmap-bead coverage gaps, unsynthesized solution docs, and skills lacking compact companions. These are combined into a weighted drift score that maps to a confidence tier: Green (current), Low, Medium, High, or Certain. Confidence determines action — from silent auto-refresh at Certain down to report-only at Low.
 
 interwatch does not regenerate documents itself. It detects drift and dispatches to generator plugins: interpath for product artifacts (roadmap, PRD, vision), interdoc for code docs (AGENTS.md). It is a sensor and orchestrator, not a writer.
 
@@ -25,14 +25,27 @@ Stale documentation is silent technical debt for agents. An agent working from a
 
 5. **On-demand, not ambient.** There are no hooks running drift detection on every file save or commit. Detection is invoked explicitly via `/interwatch:watch` or surfaced by Clavain at session checkpoints. Continuous ambient scanning would add noise without improving signal quality.
 
+6. **Convention-based discovery over manual configuration.** Projects shouldn't need to hand-author a watchables config. interwatch auto-discovers docs by matching the monorepo's naming conventions (`docs/{module}-roadmap.md`, `AGENTS.md`, etc.) and builds a per-project config on first run. Manual overrides are preserved on rediscovery — convention handles the common case, configuration handles the edge case.
+
 ## Scope
 
-**Does:** Detect documentation drift via configurable signals. Score drift with weighted, tiered confidence. Dispatch to interpath or interdoc for regeneration. Maintain per-project scan state. Expose three commands (watch, status, refresh) and one skill (doc-watch).
+**Does:** Auto-discover watchable docs by convention. Detect documentation drift via 14 signal types. Score drift with weighted, tiered confidence. Dispatch to interpath or interdoc for regeneration. Maintain per-project scan state. Expose three commands (watch, status, refresh) and one skill (doc-watch).
 
 **Does not:** Generate documentation content directly. Enforce documentation policies via hooks. Run continuously in the background. Monitor non-documentation files. Replace the generator plugins it delegates to.
 
+## Shipped (0.1.x)
+
+- Three-phase skill (detect → assess → refresh) with phase files and reference docs
+- `config/watchables.yaml` with default entries for Vision, PRD, Roadmap, AGENTS.md, distillation-candidates
+- Bead-count baseline tracking with snapshot-delta signals and `--record-refresh` reset
+- Pre-computation scanner (`interwatch-scan.py`) with 14 signal evaluators
+- Auto-discovery: convention-based watchable detection with `signal_templates`, `discovery_rules`, dedup, and manual entry preservation
+- Three new signals: `roadmap_bead_coverage`, `unsynthesized_doc_count`, `skills_without_compact`
+- Threshold refactoring: data-driven `THRESHOLD_SIGNALS` dispatch table
+
 ## Direction
 
-- Add `detect.md` phase file to complete the three-phase skill (detect → assess → refresh)
-- Implement `config/watchables.yaml` with default entries for Vision, PRD, Roadmap, AGENTS.md
-- Wire bead-count baseline tracking so signal counts reset correctly after each refresh
+- Cross-project scanning: run discovery across all monorepo subprojects in a single invocation
+- Drift trend tracking: historical score progression to detect worsening vs. improving doc health
+- Generator availability awareness: degrade gracefully when interpath/interdoc are not installed, suggest install
+- Ambient mode (opt-in): periodic scan at Clavain session checkpoints without explicit invocation

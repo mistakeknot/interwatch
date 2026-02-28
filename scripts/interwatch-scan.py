@@ -283,6 +283,102 @@ def eval_research_completed(doc_path: str, mtime: float) -> int:
     return min(count, 3)
 
 
+def eval_roadmap_bead_coverage(doc_path: str, mtime: float, threshold_min: int = 95) -> int:
+    """Check roadmap-bead coverage via lib-watch.sh.
+
+    Sources _watch_roadmap_bead_coverage from the bash library and parses
+    the JSON result. Returns 1 if coverage_pct < threshold_min, else 0.
+    Graceful fallback: returns 0 if script or bd not found.
+    """
+    lib_path = Path(__file__).resolve().parent.parent / "hooks" / "lib-watch.sh"
+    if not lib_path.exists():
+        return 0
+
+    cmd = f'source "{lib_path}" && _watch_roadmap_bead_coverage "{doc_path}"'
+    output = run_cmd(["bash", "-c", cmd])
+    if not output:
+        return 0
+
+    try:
+        result = json.loads(output)
+        coverage = result.get("coverage_pct", 100)
+        if result.get("error"):
+            return 0
+        return 1 if coverage < threshold_min else 0
+    except (json.JSONDecodeError, TypeError):
+        return 0
+
+
+def eval_unsynthesized_doc_count(doc_path: str, mtime: float, threshold: int = 5) -> int:
+    """Count solution docs older than 14 days without synthesized_into frontmatter.
+
+    Walks docs/solutions/ recursively for .md files, skips INDEX.md and
+    TEMPLATE.md, skips files newer than 14 days, parses YAML frontmatter
+    for synthesized_into field. Returns 1 if count >= threshold, else 0.
+    """
+    solutions_dir = Path("docs/solutions")
+    if not solutions_dir.exists():
+        return 0
+
+    cutoff = time.time() - (14 * 86400)
+    count = 0
+
+    for md in solutions_dir.rglob("*.md"):
+        if md.name in ("INDEX.md", "TEMPLATE.md"):
+            continue
+        try:
+            if md.stat().st_mtime > cutoff:
+                continue
+        except OSError:
+            continue
+
+        # Parse YAML frontmatter
+        try:
+            content = md.read_text(errors="replace")
+        except OSError:
+            continue
+
+        if content.startswith("---"):
+            end = content.find("---", 3)
+            if end != -1:
+                try:
+                    fm = yaml.safe_load(content[3:end])
+                    if isinstance(fm, dict) and fm.get("synthesized_into"):
+                        continue
+                except yaml.YAMLError:
+                    pass
+
+        count += 1
+
+    return 1 if count >= threshold else 0
+
+
+def eval_skills_without_compact(doc_path: str, mtime: float, threshold: int = 3) -> int:
+    """Count SKILL.md files >90 lines lacking a sibling SKILL-compact.md.
+
+    Walks skills/*/SKILL.md, counts those with more than 90 lines that
+    don't have a corresponding SKILL-compact.md. Returns 1 if count >=
+    threshold, else 0.
+    """
+    skills_dir = Path("skills")
+    if not skills_dir.exists():
+        return 0
+
+    count = 0
+    for skill_md in skills_dir.glob("*/SKILL.md"):
+        compact = skill_md.parent / "SKILL-compact.md"
+        if compact.exists():
+            continue
+        try:
+            lines = len(skill_md.read_text(errors="replace").splitlines())
+        except OSError:
+            continue
+        if lines > 90:
+            count += 1
+
+    return 1 if count >= threshold else 0
+
+
 # ─── Signal dispatch ─────────────────────────────────────────────────
 
 SIGNAL_EVALUATORS = {
@@ -297,10 +393,21 @@ SIGNAL_EVALUATORS = {
     "brainstorm_created": eval_brainstorm_created,
     "companion_extracted": eval_companion_extracted,
     "research_completed": eval_research_completed,
+    "roadmap_bead_coverage": eval_roadmap_bead_coverage,
+    "unsynthesized_doc_count": eval_unsynthesized_doc_count,
+    "skills_without_compact": eval_skills_without_compact,
 }
 
 # Signals that accept a baseline dict as third argument
 BASELINE_SIGNALS = {"bead_closed", "bead_created"}
+
+# Signals that accept a threshold parameter as third argument
+THRESHOLD_SIGNALS = {
+    "commits_since_update": {"param": "threshold", "default": 20},
+    "roadmap_bead_coverage": {"param": "threshold_min", "default": 95},
+    "unsynthesized_doc_count": {"param": "threshold", "default": 5},
+    "skills_without_compact": {"param": "threshold", "default": 3},
+}
 
 
 # ─── Confidence tier mapping ─────────────────────────────────────────
@@ -360,9 +467,10 @@ def scan_watchable(watchable: dict, baseline: dict | None = None) -> dict:
         if evaluator is None:
             continue
 
-        # Handle threshold parameter for commits_since_update
-        if sig_type == "commits_since_update" and "threshold" in signal_def:
-            count = eval_commits_since_update(path, mtime, signal_def["threshold"])
+        if sig_type in THRESHOLD_SIGNALS:
+            tinfo = THRESHOLD_SIGNALS[sig_type]
+            threshold_val = signal_def.get(tinfo["param"], tinfo["default"])
+            count = evaluator(path, mtime, threshold_val)
         elif sig_type in BASELINE_SIGNALS:
             count = evaluator(path, mtime, baseline)
         else:
@@ -417,6 +525,174 @@ def load_config(config_path: str | None = None) -> dict:
     sys.exit(2)
 
 
+def load_plugin_config() -> dict:
+    """Load the plugin's built-in config (template source for discovery).
+
+    Always resolves from __file__ to find the plugin's config/watchables.yaml,
+    never reads project overrides — this is the authoritative template source.
+    """
+    config_path = Path(__file__).resolve().parent.parent / "config" / "watchables.yaml"
+    if not config_path.exists():
+        print(f"Error: plugin config not found at {config_path}", file=sys.stderr)
+        sys.exit(2)
+    with open(config_path) as f:
+        return yaml.safe_load(f)
+
+
+# ─── Discovery ────────────────────────────────────────────────────────
+
+
+def detect_module_name(project_root: str) -> str:
+    """Detect the module name for a project.
+
+    Tries .claude-plugin/plugin.json 'name' field first,
+    then falls back to the directory basename.
+    """
+    for manifest in [
+        os.path.join(project_root, ".claude-plugin", "plugin.json"),
+        os.path.join(project_root, "plugin.json"),
+    ]:
+        if os.path.exists(manifest):
+            try:
+                with open(manifest) as f:
+                    name = json.load(f).get("name", "")
+                if name:
+                    return name
+            except (json.JSONDecodeError, OSError):
+                pass
+    return os.path.basename(os.path.abspath(project_root))
+
+
+def detect_generators() -> dict[str, bool]:
+    """Check which generators are available in the plugin cache."""
+    cache_dir = Path.home() / ".claude" / "plugins" / "cache"
+    available = {
+        "interpath:artifact-gen": False,
+        "interdoc:interdoc": False,
+    }
+    if not cache_dir.exists():
+        return available
+
+    for entry in cache_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        if (entry / "interpath").exists():
+            available["interpath:artifact-gen"] = True
+        if (entry / "interdoc").exists():
+            available["interdoc:interdoc"] = True
+
+    return available
+
+
+def discover_watchables(config: dict, project_root: str) -> list[dict]:
+    """Auto-discover watchable docs by matching discovery rules against the project.
+
+    1. Load signal_templates and discovery_rules from config
+    2. Resolve {module} in each rule's pattern
+    3. Check os.path.exists() for each resolved pattern
+    4. Apply dedup: skip if skip_if_exists path exists
+    5. Build watchable entry from matched template with discovered: True
+    6. Check generator availability — if not installed, set generator to null
+    """
+    templates = config.get("signal_templates", {})
+    rules = config.get("discovery_rules", [])
+    if not templates or not rules:
+        return []
+
+    module_name = detect_module_name(project_root)
+    generators = detect_generators()
+    discovered = []
+
+    for rule in rules:
+        pattern = rule["pattern"].replace("{module}", module_name)
+        template_name = rule.get("template", "")
+        name_format = rule.get("name_format", "").replace("{module}", module_name)
+
+        # Dedup: skip if a preferred variant exists
+        skip_if = rule.get("skip_if_exists", "")
+        if skip_if:
+            skip_path = os.path.join(project_root, skip_if.replace("{module}", module_name))
+            if os.path.exists(skip_path):
+                continue
+
+        resolved_path = os.path.join(project_root, pattern)
+        if not os.path.exists(resolved_path):
+            continue
+
+        template = templates.get(template_name)
+        if template is None:
+            continue
+
+        generator = template.get("generator")
+        generator_args = template.get("generator_args", {})
+        generator_note = None
+
+        if generator and not generators.get(generator, False):
+            generator_note = f"{generator} not installed"
+            generator = None
+
+        entry = {
+            "name": name_format,
+            "path": pattern,
+            "generator": generator,
+            "generator_args": generator_args,
+            "staleness_days": template.get("staleness_days", 14),
+            "signals": template.get("signals", []),
+            "discovered": True,
+        }
+        if generator_note:
+            entry["generator_note"] = generator_note
+
+        discovered.append(entry)
+
+    return discovered
+
+
+def merge_discovered_with_manual(discovered: list[dict], existing_path: str) -> list[dict]:
+    """Merge newly discovered watchables with manually added entries.
+
+    Manual entries (those without discovered: True) are preserved.
+    Discovered entries are replaced wholesale with new discovery results.
+    """
+    manual = []
+    if os.path.exists(existing_path):
+        try:
+            with open(existing_path) as f:
+                existing = yaml.safe_load(f)
+            if existing and "watchables" in existing:
+                for w in existing["watchables"]:
+                    if not w.get("discovered", False):
+                        manual.append(w)
+        except (OSError, yaml.YAMLError):
+            pass
+
+    return discovered + manual
+
+
+def write_discovered_config(watchables: list[dict], project_root: str) -> str:
+    """Write discovered watchables to .interwatch/watchables.yaml.
+
+    Returns the path to the written file.
+    """
+    state_dir = os.path.join(project_root, STATE_DIR)
+    os.makedirs(state_dir, exist_ok=True)
+    out_path = os.path.join(state_dir, "watchables.yaml")
+
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    header = (
+        f"# Auto-generated by interwatch discovery — {timestamp}\n"
+        f"# Regenerate: python3 scripts/interwatch-scan.py --rediscover\n"
+        f"# Manual entries (without 'discovered: true') are preserved on rediscovery.\n\n"
+    )
+
+    content = {"watchables": watchables}
+    with open(out_path, "w") as f:
+        f.write(header)
+        yaml.dump(content, f, default_flow_style=False, sort_keys=False)
+
+    return out_path
+
+
 def record_refresh(doc_name: str) -> None:
     """Reset baselines for a specific doc after a generator refresh.
 
@@ -446,6 +722,12 @@ def main():
                         help="Write baselines to .interwatch/last-scan.json after scan")
     parser.add_argument("--record-refresh", metavar="DOC_NAME",
                         help="Reset baselines for a doc after refresh (e.g., 'roadmap')")
+    parser.add_argument("--discover", action="store_true",
+                        help="Auto-discover watchables, write .interwatch/watchables.yaml, then scan")
+    parser.add_argument("--rediscover", action="store_true",
+                        help="Force re-discovery even if .interwatch/watchables.yaml exists")
+    parser.add_argument("--discover-only", action="store_true",
+                        help="Run discovery without scanning (just write config)")
     args = parser.parse_args()
 
     # Handle --record-refresh: update baselines and exit
@@ -453,6 +735,27 @@ def main():
         record_refresh(args.record_refresh)
         print(json.dumps({"recorded_refresh": args.record_refresh}))
         return
+
+    # Handle discovery flags
+    if args.discover or args.rediscover or args.discover_only:
+        plugin_config = load_plugin_config()
+        discovered_path = os.path.join(STATE_DIR, "watchables.yaml")
+        project_root = os.getcwd()
+
+        if args.rediscover or not os.path.exists(discovered_path):
+            discovered = discover_watchables(plugin_config, project_root)
+            merged = merge_discovered_with_manual(discovered, discovered_path)
+            out = write_discovered_config(merged, project_root)
+
+            summary = {
+                "discovered": len(discovered),
+                "manual_preserved": len(merged) - len(discovered),
+                "written_to": out,
+            }
+            print(json.dumps(summary), file=sys.stderr)
+
+        if args.discover_only:
+            return
 
     config = load_config(args.config)
     watchables = config.get("watchables", [])

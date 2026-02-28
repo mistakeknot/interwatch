@@ -112,3 +112,60 @@ _watch_roadmap_bead_coverage() {
 
     echo "$result"
 }
+
+# Count solution docs older than 14 days without synthesized_into frontmatter.
+# Usage: _watch_unsynthesized_count [solutions_dir]
+_watch_unsynthesized_count() {
+    local dir="${1:-docs/solutions}"
+    if [[ ! -d "$dir" ]]; then
+        echo 0
+        return
+    fi
+
+    local count=0
+    local cutoff
+    cutoff=$(date -d "14 days ago" +%s 2>/dev/null || date -v-14d +%s 2>/dev/null || echo 0)
+
+    while IFS= read -r -d '' file; do
+        # Skip special files
+        local basename
+        basename=$(basename "$file")
+        [[ "$basename" == "INDEX.md" || "$basename" == "TEMPLATE.md" ]] && continue
+
+        # Skip files newer than 14 days
+        local mtime
+        mtime=$(_watch_file_mtime "$file")
+        [[ "$mtime" -gt "$cutoff" ]] && continue
+
+        # Check for synthesized_into in YAML frontmatter
+        if head -20 "$file" 2>/dev/null | grep -q "^synthesized_into:"; then
+            continue
+        fi
+
+        ((count++))
+    done < <(find "$dir" -name "*.md" -print0 2>/dev/null)
+
+    echo "$count"
+}
+
+# Count SKILL.md files >90 lines that lack a sibling SKILL-compact.md.
+# Usage: _watch_skills_without_compact
+_watch_skills_without_compact() {
+    local count=0
+
+    for skill_md in skills/*/SKILL.md; do
+        [[ -f "$skill_md" ]] || continue
+
+        local skill_dir
+        skill_dir=$(dirname "$skill_md")
+        [[ -f "$skill_dir/SKILL-compact.md" ]] && continue
+
+        local lines
+        lines=$(wc -l < "$skill_md" 2>/dev/null || echo 0)
+        if [[ "$lines" -gt 90 ]]; then
+            ((count++))
+        fi
+    done
+
+    echo "$count"
+}
