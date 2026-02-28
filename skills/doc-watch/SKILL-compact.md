@@ -55,6 +55,7 @@ For example, after refreshing the roadmap: `--record-refresh roadmap`. This rese
 - **scan** — run Steps 1-2 only (detect + assess, no refresh)
 - **status** — read `.interwatch/drift.json` and display last scan results
 - **refresh** — skip detection, invoke generator for a specific watchable directly
+- **audit** — stranger-perspective correctness check (see `/interwatch:audit` command)
 
 ## Output Format
 

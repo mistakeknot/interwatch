@@ -39,3 +39,4 @@ This skill supports three modes (set by the invoking command):
 - **scan** — detect + assess only (no refresh)
 - **status** — show current drift scores from last scan
 - **refresh** — force refresh of a specific watchable regardless of score
+- **audit** — stranger-perspective correctness check (dispatches agent to validate doc content against project reality)
