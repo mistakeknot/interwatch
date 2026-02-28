@@ -1,6 +1,6 @@
 # interwatch — Vision and Philosophy
 
-**Version:** 0.1.8
+**Version:** 0.1.9
 **Last updated:** 2026-02-27
 
 ## What interwatch Is
