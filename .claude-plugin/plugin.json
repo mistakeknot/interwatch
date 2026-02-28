@@ -1,6 +1,6 @@
 {
   "name": "interwatch",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Doc freshness monitoring — auto-discovers watchable docs by convention, detects drift via 14 signal types, scores confidence, and dispatches to generators for auto-refresh. Companion plugin for Clavain.",
   "author": {
     "name": "mistakeknot"
