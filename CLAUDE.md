@@ -4,7 +4,7 @@
 
 ## Overview
 
-Doc freshness and correctness monitoring — 1 skill, 4 commands, 0 agents, 0 hooks (library only), 0 MCP servers. Companion plugin for Clavain. Auto-discovers watchable docs by convention, detects drift via 14 signal types, dispatches to generators for refresh, and runs stranger-perspective correctness audits against project reality.
+Doc freshness and correctness monitoring — 1 skill, 4 commands, 0 agents, 0 hooks (library only), 0 MCP servers. Companion plugin for Clavain. Auto-discovers watchable docs by convention, detects drift via 15 signal types, dispatches to generators for refresh, and runs stranger-perspective correctness audits against project reality.
 
 ## Quick Commands
 
@@ -39,7 +39,7 @@ python3 scripts/interwatch-audit.py --gather-only     # Print ground truth JSON 
 - Generator-agnostic — calls interpath for product docs, interdoc for code docs
 - No hooks — drift detection is on-demand, not event-driven
 - Auto-discovery via `--discover` — convention-based, generates `.interwatch/watchables.yaml`
-- 14 signal types with threshold-based dispatch table
+- 15 signal types with threshold-based dispatch table
 - Correctness audit is agent-dispatched (expensive), separate from signal-based scoring (cheap)
 - Audit gathers ground truth (counts, files, versions) then dispatches sonnet agent for verification
 - Freshness (scan) and correctness (audit) are complementary: fresh docs can be wrong, stale docs can be correct

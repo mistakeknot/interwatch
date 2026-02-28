@@ -283,6 +283,33 @@ def eval_research_completed(doc_path: str, mtime: float) -> int:
     return min(count, 3)
 
 
+def eval_routing_override_applied(doc_path: str, mtime: float) -> int:
+    """Check if routing-overrides.json has active exclusions newer than doc.
+
+    When agents are excluded via interspect routing overrides, docs that
+    reference agent capabilities (AGENTS.md, PRD) may be stale.
+    """
+    if mtime == 0:
+        return 0
+    overrides_path = Path(".claude/routing-overrides.json")
+    if not overrides_path.exists():
+        return 0
+    try:
+        if overrides_path.stat().st_mtime <= mtime:
+            return 0
+        data = json.loads(overrides_path.read_text())
+        if not isinstance(data, dict):
+            return 0
+        # Count agents with "exclude" or "propose" action
+        agents = data.get("agents", data)
+        if isinstance(agents, dict):
+            return min(sum(1 for v in agents.values()
+                          if isinstance(v, dict) and v.get("action") in ("exclude", "propose")), 5)
+        return 0
+    except (OSError, json.JSONDecodeError, ValueError):
+        return 0
+
+
 def eval_roadmap_bead_coverage(doc_path: str, mtime: float, threshold_min: int = 95) -> int:
     """Check roadmap-bead coverage via lib-watch.sh.
 
@@ -396,6 +423,7 @@ SIGNAL_EVALUATORS = {
     "roadmap_bead_coverage": eval_roadmap_bead_coverage,
     "unsynthesized_doc_count": eval_unsynthesized_doc_count,
     "skills_without_compact": eval_skills_without_compact,
+    "routing_override_applied": eval_routing_override_applied,
 }
 
 # Signals that accept a baseline dict as third argument

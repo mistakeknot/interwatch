@@ -43,6 +43,9 @@ watchables:
       - type: version_bump
         weight: 2
         description: "Version bump may change product overview"
+      - type: routing_override_applied
+        weight: 2
+        description: "Agent excluded via routing override — PRD coverage section may need update"
     staleness_days: 14
 
   - name: vision
@@ -76,6 +79,9 @@ watchables:
         weight: 1
         description: "Accumulated changes may drift docs"
         threshold: 20
+      - type: routing_override_applied
+        weight: 2
+        description: "Agent excluded via routing override — documented capabilities may be stale"
     staleness_days: 14
 
   - name: distillation-candidates
@@ -118,6 +124,7 @@ signal_templates:
       - { type: component_count_changed, weight: 3 }
       - { type: companion_extracted, weight: 3 }
       - { type: version_bump, weight: 2 }
+      - { type: routing_override_applied, weight: 2 }
   vision:
     generator: interpath:artifact-gen
     generator_args: { type: vision }
@@ -134,6 +141,7 @@ signal_templates:
       - { type: file_deleted, weight: 3 }
       - { type: file_created, weight: 2 }
       - { type: commits_since_update, weight: 1, threshold: 20 }
+      - { type: routing_override_applied, weight: 2 }
   distillation-candidates:
     generator: null
     generator_args: {}
