@@ -61,6 +61,29 @@ watchables:
         description: "Research may inform direction"
     staleness_days: 30
 
+  - name: cuj
+    path: docs/cujs/
+    generator: interpath:artifact-gen
+    generator_args: { type: cuj }
+    signals:
+      - type: bead_closed
+        weight: 2
+        description: "Closed bead may affect journey steps or success signals"
+      - type: brainstorm_created
+        weight: 1
+        description: "New brainstorm may redefine user flows"
+      - type: file_created
+        weight: 2
+        description: "New files may change journey paths"
+      - type: file_deleted
+        weight: 3
+        description: "Deleted file may break a documented journey step"
+      - type: commits_since_update
+        weight: 1
+        description: "Accumulated changes may drift journey description"
+        threshold: 15
+    staleness_days: 14
+
   - name: agents-md
     path: AGENTS.md
     generator: interdoc:interdoc
@@ -142,6 +165,16 @@ signal_templates:
       - { type: file_created, weight: 2 }
       - { type: commits_since_update, weight: 1, threshold: 20 }
       - { type: routing_override_applied, weight: 2 }
+  cuj:
+    generator: interpath:artifact-gen
+    generator_args: { type: cuj }
+    staleness_days: 14
+    signals:
+      - { type: bead_closed, weight: 2 }
+      - { type: brainstorm_created, weight: 1 }
+      - { type: file_created, weight: 2 }
+      - { type: file_deleted, weight: 3 }
+      - { type: commits_since_update, weight: 1, threshold: 15 }
   distillation-candidates:
     generator: null
     generator_args: {}
@@ -175,6 +208,9 @@ discovery_rules:
     template: vision
     name_format: "vision"
     skip_if_exists: "docs/{module}-vision.md"
+  - pattern: "docs/cujs/*.md"
+    template: cuj
+    name_format: "cuj-{stem}"
   - pattern: "docs/solutions/"
     template: distillation-candidates
     name_format: "distillation-candidates"

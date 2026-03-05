@@ -22,7 +22,7 @@ watchables:
 
 | Generator | Plugin | Produces |
 |-----------|--------|----------|
-| `interpath:artifact-gen` | interpath | Roadmap, PRD, Vision, Changelog, Status |
+| `interpath:artifact-gen` | interpath | Roadmap, PRD, Vision, Changelog, Status, CUJ |
 | `interdoc:interdoc` | interdoc | AGENTS.md, CLAUDE.md |
 
 ## Built-in Watchables

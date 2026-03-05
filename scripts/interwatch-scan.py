@@ -617,11 +617,17 @@ def discover_watchables(config: dict, project_root: str) -> list[dict]:
 
     1. Load signal_templates and discovery_rules from config
     2. Resolve {module} in each rule's pattern
-    3. Check os.path.exists() for each resolved pattern
+    3. Check os.path.exists() for each resolved pattern (or glob for wildcard patterns)
     4. Apply dedup: skip if skip_if_exists path exists
     5. Build watchable entry from matched template with discovered: True
     6. Check generator availability — if not installed, set generator to null
+
+    Supports glob patterns (containing '*') in discovery rules. When a pattern
+    contains '*' and the name_format uses '{stem}', each matched file gets its
+    own watchable entry with {stem} resolved to the filename without extension.
     """
+    from glob import glob as glob_match
+
     templates = config.get("signal_templates", {})
     rules = config.get("discovery_rules", [])
     if not templates or not rules:
@@ -643,35 +649,55 @@ def discover_watchables(config: dict, project_root: str) -> list[dict]:
             if os.path.exists(skip_path):
                 continue
 
-        resolved_path = os.path.join(project_root, pattern)
-        if not os.path.exists(resolved_path):
-            continue
-
         template = templates.get(template_name)
         if template is None:
             continue
 
         generator = template.get("generator")
-        generator_args = template.get("generator_args", {})
+        generator_args = dict(template.get("generator_args", {}))
         generator_note = None
 
         if generator and not generators.get(generator, False):
             generator_note = f"{generator} not installed"
             generator = None
 
-        entry = {
-            "name": name_format,
-            "path": pattern,
-            "generator": generator,
-            "generator_args": generator_args,
-            "staleness_days": template.get("staleness_days", 14),
-            "signals": template.get("signals", []),
-            "discovered": True,
-        }
-        if generator_note:
-            entry["generator_note"] = generator_note
-
-        discovered.append(entry)
+        # Handle glob patterns (containing '*') for per-file watchable discovery
+        resolved_path = os.path.join(project_root, pattern)
+        if "*" in pattern:
+            matched_files = glob_match(resolved_path)
+            if not matched_files:
+                continue
+            for matched in sorted(matched_files):
+                rel_path = os.path.relpath(matched, project_root)
+                stem = Path(matched).stem
+                entry_name = name_format.replace("{stem}", stem)
+                entry = {
+                    "name": entry_name,
+                    "path": rel_path,
+                    "generator": generator,
+                    "generator_args": generator_args,
+                    "staleness_days": template.get("staleness_days", 14),
+                    "signals": list(template.get("signals", [])),
+                    "discovered": True,
+                }
+                if generator_note:
+                    entry["generator_note"] = generator_note
+                discovered.append(entry)
+        else:
+            if not os.path.exists(resolved_path):
+                continue
+            entry = {
+                "name": name_format,
+                "path": pattern,
+                "generator": generator,
+                "generator_args": generator_args,
+                "staleness_days": template.get("staleness_days", 14),
+                "signals": list(template.get("signals", [])),
+                "discovered": True,
+            }
+            if generator_note:
+                entry["generator_note"] = generator_note
+            discovered.append(entry)
 
     return discovered
 
