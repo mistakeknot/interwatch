@@ -27,6 +27,9 @@ watchables:
         checker: _watch_roadmap_bead_coverage
         threshold_field: coverage_pct
         threshold_min: 95
+      - type: bead_reference_stale
+        weight: 3
+        description: "Doc references closed/deferred/missing bead IDs"
     staleness_days: 7
 
   - name: prd
@@ -59,6 +62,9 @@ watchables:
       - type: research_completed
         weight: 1
         description: "Research may inform direction"
+      - type: bead_reference_stale
+        weight: 3
+        description: "Doc references closed/deferred/missing bead IDs"
     staleness_days: 30
 
   - name: cuj
@@ -139,6 +145,7 @@ signal_templates:
       - { type: version_bump, weight: 3 }
       - { type: brainstorm_created, weight: 1 }
       - { type: roadmap_bead_coverage, weight: 3, threshold_min: 95 }
+      - { type: bead_reference_stale, weight: 3 }
   prd:
     generator: interpath:artifact-gen
     generator_args: { type: prd }
@@ -155,6 +162,7 @@ signal_templates:
     signals:
       - { type: companion_extracted, weight: 2 }
       - { type: research_completed, weight: 1 }
+      - { type: bead_reference_stale, weight: 3 }
   agents-md:
     generator: interdoc:interdoc
     generator_args: {}

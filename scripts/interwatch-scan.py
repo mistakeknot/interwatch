@@ -406,6 +406,39 @@ def eval_skills_without_compact(doc_path: str, mtime: float, threshold: int = 3)
     return 1 if count >= threshold else 0
 
 
+def eval_bead_reference_stale(doc_path: str, mtime: float) -> int:
+    """Count stale bead references in doc text.
+
+    Scans the document for iv-[a-z0-9]+ bead ID patterns, checks each
+    against `bd show`, and counts references to closed/deferred/missing
+    beads. Caches bd show results to avoid duplicate subprocess calls.
+    """
+    try:
+        with open(doc_path) as f:
+            content = f.read()
+    except OSError:
+        return 0
+
+    import re
+    bead_ids = set(re.findall(r'\biv-[a-z0-9]+\b', content))
+    if not bead_ids:
+        return 0
+
+    stale_count = 0
+    for bead_id in bead_ids:
+        output = run_cmd(["bd", "show", bead_id])
+        if not output:
+            # bd show failed — bead doesn't exist
+            stale_count += 1
+            continue
+        # Check for closed/deferred status in the output
+        output_upper = output.upper()
+        if "CLOSED" in output_upper or "DEFERRED" in output_upper:
+            stale_count += 1
+
+    return min(stale_count, 10)
+
+
 # ─── Signal dispatch ─────────────────────────────────────────────────
 
 SIGNAL_EVALUATORS = {
@@ -424,6 +457,7 @@ SIGNAL_EVALUATORS = {
     "unsynthesized_doc_count": eval_unsynthesized_doc_count,
     "skills_without_compact": eval_skills_without_compact,
     "routing_override_applied": eval_routing_override_applied,
+    "bead_reference_stale": eval_bead_reference_stale,
 }
 
 # Signals that accept a baseline dict as third argument
@@ -507,8 +541,8 @@ def scan_watchable(watchable: dict, baseline: dict | None = None) -> dict:
         score = weight * count
         total_score += score
 
-        # version_bump and component_count_changed are deterministic
-        if sig_type in ("version_bump", "component_count_changed") and count > 0:
+        # Deterministic signals — doc is provably wrong when these fire
+        if sig_type in ("version_bump", "component_count_changed", "bead_reference_stale") and count > 0:
             has_deterministic = True
 
         signals[sig_type] = {

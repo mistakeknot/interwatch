@@ -20,6 +20,7 @@ Signals are events that indicate potential documentation drift.
 | `roadmap_bead_coverage` | `_watch_roadmap_bead_coverage` via lib-watch.sh | Free (bash+bd) | 2-3 |
 | `unsynthesized_doc_count` | YAML frontmatter scan of `docs/solutions/` | Free (file read) | 1-2 |
 | `skills_without_compact` | Glob `skills/*/SKILL.md` vs `SKILL-compact.md` | Free (glob) | 1 |
+| `bead_reference_stale` | Regex `iv-[a-z0-9]+` in doc, `bd show` each | Moderate (N bd calls) | 3 |
 
 ## Signal Categories
 
@@ -28,6 +29,7 @@ Signals are events that indicate potential documentation drift.
 Produce **Certain** confidence when they fire — the doc is objectively wrong:
 - `version_bump` (version number mismatch)
 - `component_count_changed` (count mismatch)
+- `bead_reference_stale` (references closed/deferred/missing beads)
 
 ### Probabilistic Signals
 
