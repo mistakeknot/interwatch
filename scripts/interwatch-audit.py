@@ -167,6 +167,150 @@ def gather_prerequisites() -> dict:
     return tools
 
 
+# ─── Cross-document consistency ──────────────────────────────────────
+
+
+def gather_cross_doc_consistency(project_root: str = ".") -> dict:
+    """Extract comparable claims from related docs for cross-doc validation.
+
+    Finds doc pairs that should agree (vision+roadmap, etc.), extracts
+    bead ID sets and count claims from each, and flags mismatches.
+    The audit agent uses this to check cross-doc consistency.
+    """
+    import re
+
+    # Define related doc groups (files that should agree on key facts)
+    groups = _discover_doc_groups(project_root)
+    if not groups:
+        return {"groups": [], "mismatches": []}
+
+    results = {"groups": [], "mismatches": []}
+
+    for group in groups:
+        group_data = {"name": group["name"], "docs": {}}
+
+        for doc_path in group["paths"]:
+            full_path = os.path.join(project_root, doc_path)
+            if not os.path.exists(full_path):
+                continue
+
+            try:
+                with open(full_path) as f:
+                    content = f.read()
+            except OSError:
+                continue
+
+            # Extract bead ID references
+            bead_ids = sorted(set(re.findall(r'\biv-[a-z0-9]+\b', content)))
+
+            # Extract count claims (Open: NNN, **Open beads:** NNN, etc.)
+            counts = {}
+            for label in ("Open", "Blocked", "Closed", "Total"):
+                # Match plain "Open: 698", bold "**Open beads:** 698", etc.
+                for pattern in [
+                    rf'\*\*{label}[^*]*\*\*[:\s]+(\d[\d,]*)',
+                    rf'{label}[:\s]+(\d[\d,]*)',
+                ]:
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        counts[label.lower()] = int(
+                            match.group(1).replace(",", "")
+                        )
+                        break
+
+            # Extract P0/P1 item lists (lines starting with - or * containing iv-XXXXX)
+            p0_beads = []
+            in_p0_section = False
+            for line in content.splitlines():
+                if re.search(r'(^#+.*\b(P0|Now|Frontier)|\*\*P0)', line, re.IGNORECASE):
+                    in_p0_section = True
+                    continue
+                if in_p0_section and (re.match(r'#+\s', line) or re.match(r'\*\*[A-Z]', line)):
+                    in_p0_section = False
+                    continue
+                if in_p0_section:
+                    for bid in re.findall(r'\biv-[a-z0-9]+\b', line):
+                        p0_beads.append(bid)
+
+            group_data["docs"][doc_path] = {
+                "bead_ids": bead_ids,
+                "counts": counts,
+                "p0_beads": sorted(set(p0_beads)),
+            }
+
+        results["groups"].append(group_data)
+
+        # Detect mismatches within the group
+        docs = list(group_data["docs"].items())
+        for i in range(len(docs)):
+            for j in range(i + 1, len(docs)):
+                path_a, data_a = docs[i]
+                path_b, data_b = docs[j]
+
+                # Count mismatches
+                for key in set(data_a["counts"]) & set(data_b["counts"]):
+                    if data_a["counts"][key] != data_b["counts"][key]:
+                        results["mismatches"].append({
+                            "type": "count_mismatch",
+                            "key": key,
+                            "doc_a": path_a,
+                            "value_a": data_a["counts"][key],
+                            "doc_b": path_b,
+                            "value_b": data_b["counts"][key],
+                        })
+
+                # P0 bead set mismatches
+                set_a = set(data_a["p0_beads"])
+                set_b = set(data_b["p0_beads"])
+                if set_a and set_b and set_a != set_b:
+                    results["mismatches"].append({
+                        "type": "p0_set_mismatch",
+                        "doc_a": path_a,
+                        "p0_beads_a": data_a["p0_beads"],
+                        "doc_b": path_b,
+                        "p0_beads_b": data_b["p0_beads"],
+                        "only_in_a": sorted(set_a - set_b),
+                        "only_in_b": sorted(set_b - set_a),
+                    })
+
+    return results
+
+
+def _discover_doc_groups(project_root: str) -> list[dict]:
+    """Find groups of related docs that should agree on facts.
+
+    Auto-discovers vision+roadmap pairs by convention:
+    docs/{module}-vision.md + docs/{module}-roadmap.md
+    """
+    groups = []
+    vision_files = glob(os.path.join(project_root, "docs/*-vision.md"))
+
+    for vision_path in vision_files:
+        stem = Path(vision_path).stem  # e.g., "demarch-vision"
+        module = stem.rsplit("-vision", 1)[0]  # e.g., "demarch"
+        roadmap_path = os.path.join(project_root, f"docs/{module}-roadmap.md")
+
+        if os.path.exists(roadmap_path):
+            groups.append({
+                "name": f"{module}-docs",
+                "paths": [
+                    f"docs/{module}-vision.md",
+                    f"docs/{module}-roadmap.md",
+                ],
+            })
+
+    # Also check generic docs/vision.md + docs/roadmap.md
+    generic_vision = os.path.join(project_root, "docs/vision.md")
+    generic_roadmap = os.path.join(project_root, "docs/roadmap.md")
+    if os.path.exists(generic_vision) and os.path.exists(generic_roadmap):
+        groups.append({
+            "name": "project-docs",
+            "paths": ["docs/vision.md", "docs/roadmap.md"],
+        })
+
+    return groups
+
+
 # ─── Doc extraction ──────────────────────────────────────────────────
 
 
@@ -255,6 +399,7 @@ def gather_ground_truth(project_root: str = ".", doc_paths: list[str] | None = N
         "directory_structure": gather_directory_structure(project_root),
         "referenced_files": gather_file_existence(list(referenced_files)),
         "doc_links": all_links,
+        "cross_doc_consistency": gather_cross_doc_consistency(project_root),
     }
 
 
@@ -297,8 +442,11 @@ For each document, verify:
 3. **Broken links** — Do referenced files and URLs exist? Check `referenced_files`
    in ground truth.
 
-4. **Cross-doc consistency** — Do different docs agree on the same facts? (e.g.,
-   if README says "5 pillars" and a guide says "4 pillars", flag it)
+4. **Cross-doc consistency** — Do different docs agree on the same facts?
+   Check `cross_doc_consistency` in ground truth for pre-computed mismatches.
+   If `mismatches` is non-empty, each entry is a proven inconsistency —
+   flag every one. Also check for softer disagreements not caught by the
+   pre-computation (e.g., different descriptions of the same feature).
 
 5. **Missing prerequisites** — Are all tools needed by install/build steps listed
    in prerequisites? Check `prerequisites` ground truth.
