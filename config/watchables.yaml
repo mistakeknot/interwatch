@@ -30,6 +30,9 @@ watchables:
       - type: bead_reference_stale
         weight: 3
         description: "Doc references closed/deferred/missing bead IDs"
+      - type: bead_count_mismatch
+        weight: 3
+        description: "Doc claims bead counts that differ from bd stats"
     staleness_days: 7
 
   - name: prd
@@ -146,6 +149,7 @@ signal_templates:
       - { type: brainstorm_created, weight: 1 }
       - { type: roadmap_bead_coverage, weight: 3, threshold_min: 95 }
       - { type: bead_reference_stale, weight: 3 }
+      - { type: bead_count_mismatch, weight: 3 }
   prd:
     generator: interpath:artifact-gen
     generator_args: { type: prd }

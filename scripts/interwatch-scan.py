@@ -406,6 +406,59 @@ def eval_skills_without_compact(doc_path: str, mtime: float, threshold: int = 3)
     return 1 if count >= threshold else 0
 
 
+def eval_bead_count_mismatch(doc_path: str, mtime: float) -> int:
+    """Check if bead count claims in doc match bd stats output.
+
+    Parses doc for patterns like "Open: 698", "Blocked: 68", "Closed: 2,567"
+    and compares against actual bd stats output. Returns number of mismatches.
+    """
+    try:
+        with open(doc_path) as f:
+            content = f.read()
+    except OSError:
+        return 0
+
+    # Get actual counts from bd stats
+    output = run_cmd(["bd", "stats"])
+    if not output:
+        return 0
+
+    import re
+    actual = {}
+    for line in output.splitlines():
+        line = line.strip()
+        for label in ("Open", "In Progress", "Blocked", "Closed", "Total Issues", "Ready to Work"):
+            if line.startswith(label + ":"):
+                match = re.search(r'(\d[\d,]*)\s*$', line)
+                if match:
+                    actual[label.lower()] = int(match.group(1).replace(",", ""))
+
+    if not actual:
+        return 0
+
+    # Map doc claim patterns to bd stats keys
+    claim_patterns = {
+        "open": [r'[Oo]pen[:\s]+(\d[\d,]*)', r'(\d[\d,]*)\s+open\b'],
+        "blocked": [r'[Bb]locked[:\s]+(\d[\d,]*)', r'(\d[\d,]*)\s+blocked\b'],
+        "closed": [r'[Cc]losed[:\s]+(\d[\d,]*)', r'(\d[\d,]*)\s+closed\b'],
+        "total issues": [r'[Tt]otal[:\s]+(\d[\d,]*)'],
+    }
+
+    mismatches = 0
+    for key, patterns in claim_patterns.items():
+        if key not in actual:
+            continue
+        for pattern in patterns:
+            match = re.search(pattern, content)
+            if match:
+                claimed = int(match.group(1).replace(",", ""))
+                if claimed != actual[key]:
+                    mismatches += 1
+                break
+
+    return min(mismatches, 4)
+
+
 def eval_bead_reference_stale(doc_path: str, mtime: float) -> int:
     """Count stale bead references in doc text.
 
@@ -458,6 +511,7 @@ SIGNAL_EVALUATORS = {
     "skills_without_compact": eval_skills_without_compact,
     "routing_override_applied": eval_routing_override_applied,
     "bead_reference_stale": eval_bead_reference_stale,
+    "bead_count_mismatch": eval_bead_count_mismatch,
 }
 
 # Signals that accept a baseline dict as third argument
@@ -542,7 +596,7 @@ def scan_watchable(watchable: dict, baseline: dict | None = None) -> dict:
         total_score += score
 
         # Deterministic signals — doc is provably wrong when these fire
-        if sig_type in ("version_bump", "component_count_changed", "bead_reference_stale") and count > 0:
+        if sig_type in ("version_bump", "component_count_changed", "bead_reference_stale", "bead_count_mismatch") and count > 0:
             has_deterministic = True
 
         signals[sig_type] = {

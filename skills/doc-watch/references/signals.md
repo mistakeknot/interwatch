@@ -21,6 +21,7 @@ Signals are events that indicate potential documentation drift.
 | `unsynthesized_doc_count` | YAML frontmatter scan of `docs/solutions/` | Free (file read) | 1-2 |
 | `skills_without_compact` | Glob `skills/*/SKILL.md` vs `SKILL-compact.md` | Free (glob) | 1 |
 | `bead_reference_stale` | Regex `iv-[a-z0-9]+` in doc, `bd show` each | Moderate (N bd calls) | 3 |
+| `bead_count_mismatch` | Parse count claims in doc vs `bd stats` output | Free (1 bd call) | 3 |
 
 ## Signal Categories
 
@@ -30,6 +31,7 @@ Produce **Certain** confidence when they fire — the doc is objectively wrong:
 - `version_bump` (version number mismatch)
 - `component_count_changed` (count mismatch)
 - `bead_reference_stale` (references closed/deferred/missing beads)
+- `bead_count_mismatch` (bead count claims differ from bd stats)
 
 ### Probabilistic Signals
 
