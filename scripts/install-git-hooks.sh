@@ -14,6 +14,7 @@ SENTINEL_BEGIN='# >>> interwatch managed block — do not edit manually'
 SENTINEL_END='# <<< interwatch managed block'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCAN_SCRIPT="${SCRIPT_DIR}/interwatch-scan.py"
+RUNNER_SCRIPT="${SCRIPT_DIR}/hook-runner.sh"
 
 REPO_ROOT=""
 DRY_RUN=0
@@ -40,6 +41,10 @@ if [[ ! -f "$SCAN_SCRIPT" ]]; then
   echo "error: interwatch-scan.py not found at $SCAN_SCRIPT" >&2
   exit 1
 fi
+if [[ ! -f "$RUNNER_SCRIPT" ]]; then
+  echo "error: hook-runner.sh not found at $RUNNER_SCRIPT" >&2
+  exit 1
+fi
 
 HOOKS_DIR="$REPO_ROOT/.git/hooks"
 mkdir -p "$HOOKS_DIR"
@@ -47,22 +52,17 @@ mkdir -p "$HOOKS_DIR"
 hook_body() {
   cat <<EOF
 $SENTINEL_BEGIN
-# Refreshes .interwatch/drift.json after $1. Background, non-blocking,
-# errors logged to .interwatch/hook.log.
+# Refreshes .interwatch/drift.json after $1. Detached background process,
+# non-blocking; errors logged to .interwatch/hook.log.
+#
+# Uses setsid to escape git's process group — \`&\` + \`disown\` alone is
+# insufficient because git SIGHUPs its process group on exit, killing the
+# background scan before it completes (the scan takes ~0.3s; git exits in
+# ~0.05s). setsid creates a new session, fully detaching the runner.
 (
   cd "\$(git rev-parse --show-toplevel)" || exit 0
   mkdir -p .interwatch
-  (
-    output=\$(timeout 5s python3 "$SCAN_SCRIPT" --save-state 2>&1)
-    rc=\$?
-    if [[ \$rc -ne 0 ]]; then
-      ts=\$(date -Iseconds)
-      # Truncate output to one line to avoid log bloat from tracebacks.
-      first_err=\$(printf '%s' "\$output" | head -1)
-      printf '[%s] interwatch hook (%s) exit=%d: %s\\n' "\$ts" "$1" "\$rc" "\$first_err" >> .interwatch/hook.log
-    fi
-  ) &
-  disown 2>/dev/null || true
+  setsid bash "$RUNNER_SCRIPT" "$1" </dev/null >/dev/null 2>&1 &
 ) || true
 $SENTINEL_END
 EOF
