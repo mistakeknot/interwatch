@@ -46,7 +46,19 @@ if [[ ! -f "$RUNNER_SCRIPT" ]]; then
   exit 1
 fi
 
-HOOKS_DIR="$REPO_ROOT/.git/hooks"
+# Respect core.hooksPath if set (e.g., bd configures this to .beads/hooks).
+# Fall back to .git/hooks otherwise.
+CONFIGURED_HOOKS_PATH="$(git -C "$REPO_ROOT" config --get core.hooksPath 2>/dev/null || true)"
+if [[ -n "$CONFIGURED_HOOKS_PATH" ]]; then
+  if [[ "$CONFIGURED_HOOKS_PATH" = /* ]]; then
+    HOOKS_DIR="$CONFIGURED_HOOKS_PATH"
+  else
+    HOOKS_DIR="$REPO_ROOT/$CONFIGURED_HOOKS_PATH"
+  fi
+  echo "note: respecting core.hooksPath = $CONFIGURED_HOOKS_PATH"
+else
+  HOOKS_DIR="$REPO_ROOT/.git/hooks"
+fi
 mkdir -p "$HOOKS_DIR"
 
 hook_body() {
@@ -55,14 +67,31 @@ $SENTINEL_BEGIN
 # Refreshes .interwatch/drift.json after $1. Detached background process,
 # non-blocking; errors logged to .interwatch/hook.log.
 #
-# Uses setsid to escape git's process group — \`&\` + \`disown\` alone is
+# Hook body uses portable path resolution (no hardcoded machine paths)
+# because in some setups (e.g., bd's core.hooksPath = .beads/hooks) the
+# hook file is tracked in git and shared across developers.
+#
+# Resolution order: \$INTERWATCH_HOOK_RUNNER, repo-relative
+# interverse/interwatch/scripts/hook-runner.sh, plugin cache. If none
+# found, silently skip (interwatch may not be installed on this machine).
+#
+# setsid escapes git's process group — \`&\` + \`disown\` alone is
 # insufficient because git SIGHUPs its process group on exit, killing the
-# background scan before it completes (the scan takes ~0.3s; git exits in
-# ~0.05s). setsid creates a new session, fully detaching the runner.
+# background scan before it completes.
 (
   cd "\$(git rev-parse --show-toplevel)" || exit 0
   mkdir -p .interwatch
-  setsid bash "$RUNNER_SCRIPT" "$1" </dev/null >/dev/null 2>&1 &
+  runner=""
+  for candidate in \\
+      "\${INTERWATCH_HOOK_RUNNER:-}" \\
+      "\$(pwd)/interverse/interwatch/scripts/hook-runner.sh" \\
+      "\$HOME/.claude/plugins/cache/interwatch/scripts/hook-runner.sh"; do
+    if [[ -n "\$candidate" && -x "\$candidate" ]]; then
+      runner="\$candidate"; break
+    fi
+  done
+  if [[ -z "\$runner" ]]; then exit 0; fi
+  setsid bash "\$runner" "$1" </dev/null >/dev/null 2>&1 &
 ) || true
 $SENTINEL_END
 EOF

@@ -28,7 +28,17 @@ if [[ -z "$REPO_ROOT" || ! -d "$REPO_ROOT/.git" ]]; then
   exit 1
 fi
 
-HOOKS_DIR="$REPO_ROOT/.git/hooks"
+# Respect core.hooksPath if set (must match installer behavior).
+CONFIGURED_HOOKS_PATH="$(git -C "$REPO_ROOT" config --get core.hooksPath 2>/dev/null || true)"
+if [[ -n "$CONFIGURED_HOOKS_PATH" ]]; then
+  if [[ "$CONFIGURED_HOOKS_PATH" = /* ]]; then
+    HOOKS_DIR="$CONFIGURED_HOOKS_PATH"
+  else
+    HOOKS_DIR="$REPO_ROOT/$CONFIGURED_HOOKS_PATH"
+  fi
+else
+  HOOKS_DIR="$REPO_ROOT/.git/hooks"
+fi
 
 remove_block() {
   local hook_path="$1"
