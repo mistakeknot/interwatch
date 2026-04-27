@@ -1,0 +1,24 @@
+# interwatch project config — copy to .interwatch/project.yaml in your repo.
+#
+# All keys are optional. Defaults shown.
+
+auto_refresh:
+  # Master kill-switch. Set to false to fully disable auto-fire on Certain
+  # drift (the PreToolUse hook still surfaces advisory notes for High/Medium).
+  enabled: true
+
+  # Maximum auto-fire events per UTC day, across all watchables.
+  daily_cap: 5
+
+  # Hours between consecutive auto-fires for the same watchable.
+  cooldown_hours: 24
+
+  # Per-watchable overrides. Watchable names come from .interwatch/watchables.yaml.
+  watchables:
+    # Example: opt CLAUDE.md out of auto-fire (advisory still emitted).
+    # claude-md:
+    #   enabled: false
+
+    # Example: tighter cooldown for a doc that drifts faster.
+    # sylveste-roadmap:
+    #   cooldown_hours: 6

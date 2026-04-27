@@ -4,7 +4,7 @@
 
 ## Overview
 
-Doc freshness and correctness monitoring — 1 skill, 4 commands, 0 agents, 0 hooks (library only), 0 MCP servers. Companion plugin for Clavain. Auto-discovers watchable docs by convention, detects drift via 17 signal types, dispatches to generators for refresh, and runs stranger-perspective correctness audits with cross-document consistency checking against project reality.
+Doc freshness and correctness monitoring — 1 skill, 5 commands, 0 agents, 1 PreToolUse hook + bash library, 0 MCP servers. Companion plugin for Clavain. Auto-discovers watchable docs by convention, detects drift via 17 signal types, dispatches to generators for refresh, and runs stranger-perspective correctness audits with cross-document consistency checking against project reality. Surfaces drift on Read/Edit/Write of watched docs via the `pretool-doc-access` hook (auto-fires on Certain with cooldown + daily-budget guards).
 
 ## Quick Commands
 
@@ -37,7 +37,8 @@ python3 scripts/interwatch-audit.py --gather-only     # Print ground truth JSON 
 - Confidence tiers: Certain (auto-fix), High (auto-fix+note), Medium (suggest), Low (report)
 - State tracked in `.interwatch/` (per-project, gitignored)
 - Generator-agnostic — calls interpath for product docs, interdoc for code docs
-- No hooks — drift detection is on-demand, not event-driven
+- Two hook surfaces: git post-commit/post-merge (refreshes drift state, opt-in via `/interwatch:install-hooks`) and PreToolUse on Read/Edit/Write/MultiEdit (surfaces drift on access; auto-fires on Certain confidence with 24h cooldown + 5-per-day budget by default; configurable in `.interwatch/project.yaml`)
+- Auto-fire Goodhart guardrails: cooldown + daily cap + per-watchable opt-out + master kill-switch + content-hash no-op detection in `--record-refresh` (no-op refreshes don't reset baselines or consume budget)
 - Auto-discovery via `--discover` — convention-based, generates `.interwatch/watchables.yaml`
 - 17 signal types with threshold-based dispatch table (including bead_reference_stale, bead_count_mismatch)
 - Correctness audit is agent-dispatched (expensive), separate from signal-based scoring (cheap)

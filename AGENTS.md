@@ -69,6 +69,32 @@ Per-project state in `.interwatch/` (gitignored):
 ### Hooks
 
 - `hooks/lib-watch.sh` — bash library (not a hook handler), provides signal detection functions
+- `hooks/pretool-doc-access.sh` + `hooks/pretool_doc_access.py` — PreToolUse hook (Layer 2 of doc-monitoring automation; see below)
+- `hooks/hooks.json` — registers PreToolUse on Read|Edit|Write|MultiEdit|NotebookEdit
+
+### PreToolUse drift surfacing (Layer 2 of doc-monitoring automation)
+
+When an agent reads or edits a watched doc, the hook injects an `additionalContext` advisory naming the watchable, its drift confidence, and the refresh command. Behavior by tier:
+
+- **Green / Low** — silent (no output).
+- **Medium / High** — one-line advisory: `INTERWATCH: '<name>' (<path>) is at <tier> drift (score=N). Run /interwatch:refresh <name> when ready.`
+- **Certain** — when cooldown + budget gates pass and a generator is configured, advisory escalates to `INTERWATCH AUTO-FIRE: ...`, instructing the agent to run `/interwatch:refresh <name>` *now*.
+
+Goodhart guardrails (all enforced together; auto-fire requires all to pass):
+- **Cooldown.** Default 24h between auto-fires per watchable. Configurable in `.interwatch/project.yaml` under `auto_refresh.cooldown_hours`.
+- **Daily budget.** Default 5 fires per UTC day across all watchables. Configurable in `.interwatch/project.yaml` under `auto_refresh.daily_cap`.
+- **Master kill-switch.** `auto_refresh.enabled: false` disables auto-fire entirely (advisory still emitted).
+- **Per-watchable opt-out.** `auto_refresh.watchables.<name>.enabled: false`.
+- **Generator presence.** Watchables with `generator: null` never auto-fire (no command to dispatch).
+- **No-op refresh detection.** When `--record-refresh` runs, it compares current `content_hash` to baseline. Identical → outcome=`no-op`, baselines untouched, no budget consumed.
+
+State files:
+- `.interwatch/drift.json` — current scan output, watchable confidence levels (read by hook)
+- `.interwatch/last-scan.json` — bead-count baselines + per-watchable `content_hash`
+- `.interwatch/auto-refresh.log` — append-only JSONL of every fire decision (`fired`, `cooldown`, `budget`, `disabled`, `no_generator`, `no-op`)
+- `.interwatch/project.yaml` — optional config (template at `config/project.yaml.example`)
+
+Fail-open everywhere: missing drift.json, broken JSON input, no python3, no yaml, no generator → silent exit 0.
 
 ### Git hook lifecycle (Layer 1 of doc-monitoring automation)
 

@@ -1,7 +1,7 @@
 {
   "name": "interwatch",
-  "version": "0.4.2",
-  "description": "Doc freshness and correctness monitoring \u2014 auto-discovers watchable docs, detects drift via 17 signal types, scores confidence, dispatches generators for auto-refresh, and runs stranger-perspective correctness audits with cross-document consistency checking. Companion plugin for Clavain.",
+  "version": "0.5.0",
+  "description": "Doc freshness and correctness monitoring \u2014 auto-discovers watchable docs, detects drift via 17 signal types, scores confidence, dispatches generators for auto-refresh, and runs stranger-perspective correctness audits with cross-document consistency checking. Surfaces drift on doc access via a PreToolUse hook with auto-fire on Certain confidence (cooldown + daily budget guarded). Companion plugin for Clavain.",
   "author": {
     "name": "mistakeknot"
   },

@@ -42,13 +42,13 @@ Common generators:
 
 ### Step 4: Update State
 
-State is auto-managed when `--save-state` is passed in Step 1. After **refreshing** a specific doc (Steps 2-3), record the refresh so the next scan sees zero delta:
+State is auto-managed when `--save-state` is passed in Step 1. After **refreshing** a specific doc (Steps 2-3), record the refresh **before committing**:
 
 ```bash
 python3 scripts/interwatch-scan.py --record-refresh <watchable-name>
 ```
 
-For example, after refreshing the roadmap: `--record-refresh roadmap`. This resets bead count baselines for that doc in `.interwatch/last-scan.json`.
+This resets bead count baselines and detects no-op refreshes (generator produced byte-identical output → outcome `no-op`, baselines untouched, daily auto-fire budget not consumed). Order is **generator → record-refresh → commit**: the post-commit hook updates the baseline `content_hash`, so calling `--record-refresh` after committing breaks no-op detection.
 
 ## Modes
 

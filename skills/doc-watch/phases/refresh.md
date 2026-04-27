@@ -43,16 +43,27 @@ Before applying a refresh:
 
 State is managed automatically by the scanner:
 
-- **`--save-state`** (on scan): Writes `drift.json` (full scan results) and `last-scan.json` (bead count baselines per doc).
-- **`--record-refresh <name>`** (after refresh): Resets bead count baselines for the refreshed doc so the next scan sees zero delta.
+- **`--save-state`** (on scan): Writes `drift.json` (full scan results) and `last-scan.json` (bead count baselines + content hashes per doc).
+- **`--record-refresh <name>`** (after refresh): Resets bead count baselines for the refreshed doc so the next scan sees zero delta. Also detects no-op refreshes (generator output is byte-identical to existing content) and declines to consume freshness budget in that case.
 
-After invoking a generator for any watchable, always record the refresh:
+After invoking a generator for any watchable, always record the refresh **before committing**:
 
 ```bash
+# 1. Generator runs and rewrites the doc
+# 2. Record the refresh (compares hash vs. baseline → real or no-op)
 python3 scripts/interwatch-scan.py --record-refresh <watchable-name>
+# 3. Commit (the post-commit hook will then update baselines to the new state)
 ```
 
-This prevents false positives on the next scan — without it, bead_closed/bead_created signals would fire against stale baselines.
+**Ordering matters.** The post-commit hook overwrites the baseline content_hash to whatever is in HEAD. If you commit before calling `--record-refresh`, the comparison will be hash-vs-itself and the refresh is misclassified as a no-op. The skill must enforce: generator → record-refresh → commit.
+
+The output JSON tells you what happened:
+```json
+{"recorded_refresh": "roadmap", "outcome": "refreshed", "baselines_updated": true}
+{"recorded_refresh": "roadmap", "outcome": "no-op", "baselines_updated": false}
+```
+
+A `no-op` outcome means the generator produced semantically identical output. The doc still shows up as drift-y on the next scan (because no real refresh happened), and the auto-fire daily budget is not consumed.
 
 ## Force Refresh
 

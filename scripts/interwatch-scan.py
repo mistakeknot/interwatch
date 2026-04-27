@@ -35,6 +35,89 @@ except ImportError:
 STATE_DIR = ".interwatch"
 LAST_SCAN_FILE = os.path.join(STATE_DIR, "last-scan.json")
 DRIFT_FILE = os.path.join(STATE_DIR, "drift.json")
+AUTOREFRESH_LOG = os.path.join(STATE_DIR, "auto-refresh.log")
+
+
+def compute_content_hash(path: str) -> str:
+    """Content fingerprint for a watchable path.
+
+    File: sha256 of bytes.
+    Directory (or path ending in '/'): sha256 of sorted "<rel>:<sha256>\\n"
+    lines, recursively over regular files. Returns "" on any failure so
+    callers fail-open.
+
+    Used for no-op refresh detection: if the hash before and after a
+    generator run is identical, the refresh produced semantically no change
+    and should not consume the daily budget or reset baselines.
+    """
+    import hashlib
+
+    if not os.path.exists(path):
+        return ""
+
+    try:
+        if os.path.isfile(path):
+            h = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+
+        if os.path.isdir(path):
+            entries: list[str] = []
+            for root_dir, _dirs, files in os.walk(path):
+                for fname in files:
+                    fp = os.path.join(root_dir, fname)
+                    rel = os.path.relpath(fp, path)
+                    try:
+                        sub = hashlib.sha256()
+                        with open(fp, "rb") as f:
+                            for chunk in iter(lambda: f.read(65536), b""):
+                                sub.update(chunk)
+                        entries.append(f"{rel}:{sub.hexdigest()}")
+                    except OSError:
+                        continue
+            entries.sort()
+            return hashlib.sha256("\n".join(entries).encode()).hexdigest()
+    except OSError:
+        return ""
+
+    return ""
+
+
+def _resolve_watchable_path(doc_name: str) -> str | None:
+    """Look up a watchable's path by name from .interwatch/watchables.yaml or
+    config/watchables.yaml. Returns None if not found.
+    """
+    candidates = [
+        os.path.join(STATE_DIR, "watchables.yaml"),
+        "config/watchables.yaml",
+    ]
+    plugin_cfg = Path(__file__).resolve().parent.parent / "config" / "watchables.yaml"
+    candidates.append(str(plugin_cfg))
+
+    for cfg_path in candidates:
+        if not os.path.exists(cfg_path):
+            continue
+        try:
+            with open(cfg_path) as f:
+                data = yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        for w in data.get("watchables", []) or []:
+            if isinstance(w, dict) and w.get("name") == doc_name:
+                return w.get("path")
+    return None
+
+
+def _append_autorefresh_log(entry: dict) -> None:
+    """Append a JSONL entry to .interwatch/auto-refresh.log. Best-effort."""
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(AUTOREFRESH_LOG, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
 
 
 def run_cmd(cmd: list[str], cwd: str | None = None) -> str:
@@ -835,25 +918,64 @@ def write_discovered_config(watchables: list[dict], project_root: str) -> str:
     return out_path
 
 
-def record_refresh(doc_name: str) -> None:
+def record_refresh(doc_name: str) -> dict:
     """Reset baselines for a specific doc after a generator refresh.
 
     Updates last-scan.json to record that the doc was just regenerated,
     so the next scan sees zero delta for bead counts.
+
+    No-op detection: if the doc's content_hash is identical to the previous
+    baseline, this refresh produced no semantic change. In that case we log
+    a no-op event to auto-refresh.log and do NOT reset bead-count baselines
+    (because no real refresh happened). The new content_hash is still
+    snapshotted (it's identical anyway, so this is a cheap no-op).
+
+    Returns a result dict the caller can render as JSON.
     """
     state = load_last_scan()
     baselines = state.get("baselines", {})
 
-    # Snapshot current bead counts as the new baseline for this doc
+    path = _resolve_watchable_path(doc_name)
+    new_hash = compute_content_hash(path) if path else ""
+    prior = baselines.get(doc_name, {}) or {}
+    prior_hash = prior.get("content_hash", "")
+
+    is_noop = bool(new_hash) and bool(prior_hash) and new_hash == prior_hash
+    now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    if is_noop:
+        _append_autorefresh_log({
+            "ts": now_iso,
+            "name": doc_name,
+            "tool": "record-refresh",
+            "outcome": "no-op",
+            "content_hash": new_hash,
+        })
+        return {
+            "recorded_refresh": doc_name,
+            "outcome": "no-op",
+            "content_hash": new_hash,
+            "baselines_updated": False,
+        }
+
+    # Real refresh: snapshot current bead counts AND content hash as the new baseline.
     baselines[doc_name] = {
-        "refreshed_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "refreshed_at": now_iso,
         "bead_closed_count": _count_bd_lines("closed"),
         "bead_created_count": _count_bd_lines("open"),
+        "content_hash": new_hash,
     }
 
     state["baselines"] = baselines
-    state["last_updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    state["last_updated"] = now_iso
     save_last_scan(state)
+
+    return {
+        "recorded_refresh": doc_name,
+        "outcome": "refreshed",
+        "content_hash": new_hash,
+        "baselines_updated": True,
+    }
 
 
 def main():
@@ -872,10 +994,10 @@ def main():
                         help="Run discovery without scanning (just write config)")
     args = parser.parse_args()
 
-    # Handle --record-refresh: update baselines and exit
+    # Handle --record-refresh: update baselines (or detect no-op) and exit
     if args.record_refresh:
-        record_refresh(args.record_refresh)
-        print(json.dumps({"recorded_refresh": args.record_refresh}))
+        result = record_refresh(args.record_refresh)
+        print(json.dumps(result))
         return
 
     # Handle discovery flags
@@ -934,6 +1056,16 @@ def main():
             baselines[name]["bead_closed_count"] = closed_count
             baselines[name]["bead_created_count"] = open_count
             baselines[name]["scanned_at"] = result["scan_date"]
+            # Snapshot a content hash so --record-refresh can detect no-op
+            # refreshes. Always overwrite — the baseline tracks the most
+            # recently observed file state. Generator wrappers must call
+            # --record-refresh BEFORE committing so the comparison happens
+            # while the baseline still reflects pre-generator content.
+            hp = w.get("path", "")
+            if hp:
+                h = compute_content_hash(hp)
+                if h:
+                    baselines[name]["content_hash"] = h
 
         state = {
             "last_updated": result["scan_date"],
