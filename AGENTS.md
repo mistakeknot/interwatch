@@ -63,12 +63,24 @@ Per-project state in `.interwatch/` (gitignored):
 
 ### Commands
 
-- 4 commands in `commands/`: audit.md, watch.md, status.md, refresh.md
+- 5 commands in `commands/`: audit.md, install-hooks.md, refresh.md, status.md, watch.md
 - Each has YAML frontmatter with `name` and `description`
 
 ### Hooks
 
 - `hooks/lib-watch.sh` — bash library (not a hook handler), provides signal detection functions
+
+### Git hook lifecycle (Layer 1 of doc-monitoring automation)
+
+`scripts/install-git-hooks.sh` wires `.git/hooks/post-commit` and `.git/hooks/post-merge` to refresh `.interwatch/drift.json` after every commit and merge. Runs `interwatch-scan.py --save-state` in the background with a 5s timeout — pure-Python, zero LLM cost, never blocks the commit. Errors land in `.interwatch/hook.log`.
+
+Properties:
+- **Opt-in.** User runs `/interwatch:install-hooks` deliberately — no auto-install on session start.
+- **Idempotent.** Re-running the installer rewrites the managed block in place; never duplicates.
+- **Coexistent.** Sentinel-bracketed managed block (`# >>> interwatch managed block`) preserves any existing hook content (bd-shim, husky, lefthook, etc.). Block is **prepended** after the shebang so it still runs when an existing hook ends with `exec`.
+- **Reversible.** `scripts/uninstall-git-hooks.sh` removes the managed block; deletes the hook file only if it was interwatch-only.
+
+This is the foundation of the doc-monitoring automation epic (sylveste-wdf2). Other layers (PreToolUse drift surfacing, scheduled floor refresh, audit, external replay) build on the always-fresh state this hook produces.
 
 ### Signal Evaluators
 
