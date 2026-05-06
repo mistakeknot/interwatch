@@ -52,6 +52,8 @@ Per-project state in `.interwatch/` (gitignored):
 - `history.json` — refresh history (when, what, confidence)
 - `last-scan.json` — snapshot baselines for change detection
 
+`drift.json` is a **published contract** with generators. interwatch writes it; interpath's `/interpath:all` reads it to know which docs to refresh in batch. This producer/consumer pattern over a shared file is the source of the structural `interpath ↔ interwatch` cycle the lattice surfaces (see `docs/research/2026-05-06-lattice-architectural-findings.md`). The cycle is intentional — both plugins implement halves of the sensor/generator contract — and should not be refactored to a third coordinator. Re-evaluate only if the file contract grows lifecycle semantics.
+
 ## Component Conventions
 
 ### Skills
