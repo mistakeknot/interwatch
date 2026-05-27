@@ -23,5 +23,9 @@
     "./commands/refresh.md",
     "./commands/status.md",
     "./commands/watch.md"
+  ],
+  "peerDependencies": [
+    "interdoc",
+    "interpath"
   ]
 }
