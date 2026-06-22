@@ -1,0 +1,10 @@
+{
+  "name": "interwatch",
+  "companions": {
+    "recommended": [
+      "interdoc",
+      "interpath"
+    ],
+    "optional": []
+  }
+}
