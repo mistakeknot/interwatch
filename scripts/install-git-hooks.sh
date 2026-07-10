@@ -107,11 +107,16 @@ install_hook() {
   if [[ -f "$hook_path" ]]; then
     if grep -qF "$SENTINEL_BEGIN" "$hook_path"; then
       # Replace existing managed block in-place.
-      new_content="$(awk -v begin="$SENTINEL_BEGIN" -v end="$SENTINEL_END" -v body="$body" '
-        $0 == begin { print body; in_block=1; next }
-        in_block && $0 == end { in_block=0; next }
-        !in_block { print }
-      ' "$hook_path")"
+      local before after
+      before="$(awk -v begin="$SENTINEL_BEGIN" '$0 == begin { exit } { print }' "$hook_path")"
+      after="$(awk -v end="$SENTINEL_END" 'found { print } $0 == end { found=1 }' "$hook_path")"
+      new_content="$body"
+      if [[ -n "$before" ]]; then
+        new_content="$before"$'\n'"$new_content"
+      fi
+      if [[ -n "$after" ]]; then
+        new_content="$new_content"$'\n'"$after"
+      fi
     else
       # Prepend managed block after the shebang, preserving existing hook
       # content. Prepending (not appending) ensures the block runs even when

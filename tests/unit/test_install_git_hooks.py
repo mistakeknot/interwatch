@@ -28,12 +28,13 @@ def test_generated_hook_is_posix_sh_compatible(tmp_path: Path) -> None:
     hook.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
     hook.chmod(0o755)
 
-    subprocess.run(
-        ["bash", str(INSTALLER), "--repo", str(tmp_path)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    for _ in range(2):
+        subprocess.run(
+            ["bash", str(INSTALLER), "--repo", str(tmp_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     result = subprocess.run(
         [dash, str(hook)],
         cwd=tmp_path,
