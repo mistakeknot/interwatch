@@ -86,11 +86,11 @@ $SENTINEL_BEGIN
       "\${INTERWATCH_HOOK_RUNNER:-}" \\
       "\$(pwd)/interverse/interwatch/scripts/hook-runner.sh" \\
       "\$HOME/.claude/plugins/cache/interwatch/scripts/hook-runner.sh"; do
-    if [[ -n "\$candidate" && -x "\$candidate" ]]; then
+    if [ -n "\$candidate" ] && [ -x "\$candidate" ]; then
       runner="\$candidate"; break
     fi
   done
-  if [[ -z "\$runner" ]]; then exit 0; fi
+  if [ -z "\$runner" ]; then exit 0; fi
   setsid bash "\$runner" "$1" </dev/null >/dev/null 2>&1 &
 ) || true
 $SENTINEL_END
