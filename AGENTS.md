@@ -112,7 +112,7 @@ This is the foundation of the doc-monitoring automation epic (sylveste-wdf2). Ot
 
 ### Signal Evaluators
 
-14 signal types in `scripts/interwatch-scan.py`, dispatched via `SIGNAL_EVALUATORS`:
+20 signal types in `scripts/interwatch-scan.py`, dispatched via `SIGNAL_EVALUATORS` (local signals) and `SURFACE_SIGNALS` (deployed-surface signals):
 
 | Signal | What it detects |
 |--------|----------------|
@@ -127,8 +127,15 @@ This is the foundation of the doc-monitoring automation epic (sylveste-wdf2). Ot
 | `roadmap_bead_coverage` | Roadmap-bead coverage via lib-watch.sh audit |
 | `unsynthesized_doc_count` | Solution docs >14 days old without `synthesized_into` |
 | `skills_without_compact` | SKILL.md files >90 lines lacking SKILL-compact.md |
+| `bead_reference_stale` | Doc references closed/deferred/missing bead IDs |
+| `bead_count_mismatch` | Doc claims bead counts that differ from bd stats |
+| `deployed_surface_unreachable` | Registered deployed URL not answering 200 with content |
+| `deployed_provenance_drift` | Deployed surface's provenance sha ≠ expectation (git HEAD or recorded deploy state) |
+| `deployed_jsonld_invalid` | Deployed page's `application/ld+json` blocks unparseable or missing stable `@id` |
 
 Threshold-based signals use the `THRESHOLD_SIGNALS` dispatch table instead of per-signal `if` checks.
+
+**Deployed-surface signals** (the interstate boundary contract — interstate generates machine surfaces and registers them; interwatch is the sole detection layer): a watchable opts in by carrying a `url:` field; these are the only signals that leave the local filesystem. Offline posture: network-level failure (DNS/refused/timeout, or `INTERWATCH_OFFLINE=1`) is "cannot check", never drift — noted in top-level `surface_notes`. An HTTP answer (404/empty) IS drift. `deployed_provenance_drift` and `deployed_jsonld_invalid` are deterministic (tier Certain) when they fire; `deployed_surface_unreachable` is weighted only, so a transient 5xx never auto-fires hooks. Fetches are cached per scan run, 10s timeout. `expect: recorded` compares against `.interwatch/deploy-state.json` (`{"sha": ...}`, written by a deploy hook); `expect: git-head` (default) against `git rev-parse HEAD`.
 
 ### Correctness Audit
 

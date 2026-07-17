@@ -4,7 +4,7 @@
 
 ## Overview
 
-Doc freshness and correctness monitoring — 1 skill, 5 commands, 0 agents, 1 PreToolUse hook + bash library, 0 MCP servers. Companion plugin for Clavain. Auto-discovers watchable docs by convention, detects drift via 17 signal types, dispatches to generators for refresh, and runs stranger-perspective correctness audits with cross-document consistency checking against project reality. Surfaces drift on Read/Edit/Write of watched docs via the `pretool-doc-access` hook (auto-fires on Certain with cooldown + daily-budget guards).
+Doc freshness and correctness monitoring — 1 skill, 5 commands, 0 agents, 1 PreToolUse hook + bash library, 0 MCP servers. Companion plugin for Clavain. Auto-discovers watchable docs by convention, detects drift via 20 signal types (17 local + 3 deployed-surface), dispatches to generators for refresh, and runs stranger-perspective correctness audits with cross-document consistency checking against project reality. Surfaces drift on Read/Edit/Write of watched docs via the `pretool-doc-access` hook (auto-fires on Certain with cooldown + daily-budget guards).
 
 ## Quick Commands
 
@@ -40,7 +40,8 @@ python3 scripts/interwatch-audit.py --gather-only     # Print ground truth JSON 
 - Two hook surfaces: git post-commit/post-merge (refreshes drift state, opt-in via `/interwatch:install-hooks`) and PreToolUse on Read/Edit/Write/MultiEdit (surfaces drift on access; auto-fires on Certain confidence with 24h cooldown + 5-per-day budget by default; configurable in `.interwatch/project.yaml`)
 - Auto-fire Goodhart guardrails: cooldown + daily cap + per-watchable opt-out + master kill-switch + content-hash no-op detection in `--record-refresh` (no-op refreshes don't reset baselines or consume budget)
 - Auto-discovery via `--discover` — convention-based, generates `.interwatch/watchables.yaml`
-- 17 signal types with threshold-based dispatch table (including bead_reference_stale, bead_count_mismatch)
+- 20 signal types with threshold-based dispatch table (including bead_reference_stale, bead_count_mismatch)
+- Deployed-surface signals (deployed_surface_unreachable / deployed_provenance_drift / deployed_jsonld_invalid) — the interstate boundary contract: watchables with a `url:` field fetch the DEPLOYED surface and compare to repo expectations; network failure = "cannot check" (never drift); provenance/JSON-LD mismatches are deterministic (Certain)
 - Correctness audit is agent-dispatched (expensive), separate from signal-based scoring (cheap)
 - Audit gathers ground truth (counts, files, versions, cross-doc consistency) then dispatches sonnet agent for verification
 - Cross-document consistency: audit auto-discovers related doc groups (vision+roadmap) and detects P0 set and count mismatches

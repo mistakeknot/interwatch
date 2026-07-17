@@ -575,6 +575,141 @@ def eval_bead_reference_stale(doc_path: str, mtime: float) -> int:
     return min(stale_count, 10)
 
 
+# ─── Deployed-surface signals ─────────────────────────────────────────
+# The interstate boundary contract (interstate bead mk-nhx): interstate
+# GENERATES machine surfaces (llms.txt, per-page JSON-LD, robots.txt) and
+# registers them here; interwatch is the ecosystem's sole detection layer.
+# These evaluators are the only signal family that leaves the local
+# filesystem: they fetch the DEPLOYED surface over HTTP and compare it to
+# repo expectations. A watchable opts in by carrying a `url:` field.
+#
+# Offline posture: a network-level failure (DNS, refused, timeout, or
+# INTERWATCH_OFFLINE=1) means "cannot check", never drift — count 0 with a
+# note in the top-level surface_notes. An HTTP response (404/500/empty) is
+# the server answering "that surface is not here", which IS drift.
+
+SURFACE_FETCH_TIMEOUT = 10
+DEFAULT_PROVENANCE_PATTERN = r"source:\s*\S+@([0-9a-fA-F]{7,40})"
+
+_surface_cache: dict = {}   # url -> (status, body); status 0 = network failure
+_surface_notes: list = []
+
+
+def _fetch_surface(url: str) -> tuple:
+    """GET url once per scan (cached). Returns (status, body)."""
+    if url in _surface_cache:
+        return _surface_cache[url]
+    if os.environ.get("INTERWATCH_OFFLINE"):
+        result = (0, "")
+        _surface_notes.append(f"INTERWATCH_OFFLINE set: skipped fetch of {url}")
+    else:
+        import urllib.request
+        import urllib.error
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "interwatch-scan (deployed-surface check)"})
+            with urllib.request.urlopen(req, timeout=SURFACE_FETCH_TIMEOUT) as resp:
+                result = (resp.status, resp.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as e:
+            result = (e.code, "")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            result = (0, "")
+            _surface_notes.append(f"network unavailable for {url}: {e}")
+    _surface_cache[url] = result
+    return result
+
+
+def eval_deployed_surface_unreachable(watchable: dict, signal_def: dict) -> int:
+    """Deployed surface must answer 200 with a non-empty body."""
+    url = watchable.get("url")
+    if not url:
+        return 0
+    status, body = _fetch_surface(url)
+    if status == 0:
+        return 0  # cannot check ≠ drift
+    return 1 if (status != 200 or not body.strip()) else 0
+
+
+def eval_deployed_provenance_drift(watchable: dict, signal_def: dict) -> int:
+    """Deployed surface must carry a provenance sha matching the expectation.
+
+    signal_def options:
+      provenance_pattern — regex with the sha in group 1
+                           (default matches interstate's `source: repo@sha`)
+      expect: git-head    — compare to `git rev-parse HEAD` (default)
+      expect: recorded    — compare to .interwatch/deploy-state.json {"sha": ...}
+    A surface with NO extractable provenance stamp counts as drift: the
+    whole point of the stamp is that its absence is detectable.
+    """
+    url = watchable.get("url")
+    if not url:
+        return 0
+    status, body = _fetch_surface(url)
+    if status != 200:
+        return 0  # unreachable is its own signal; don't double-count
+    import re
+    m = re.search(signal_def.get("provenance_pattern", DEFAULT_PROVENANCE_PATTERN), body)
+    if not m:
+        return 1
+    deployed_sha = m.group(1).lower()
+    if signal_def.get("expect", "git-head") == "recorded":
+        state_file = os.path.join(STATE_DIR, "deploy-state.json")
+        try:
+            with open(state_file) as f:
+                expected = json.load(f).get("sha", "").lower()
+        except (OSError, json.JSONDecodeError):
+            _surface_notes.append(
+                f"{watchable.get('name')}: expect=recorded but {state_file} missing/unreadable; skipped")
+            return 0
+    else:
+        expected = run_cmd(["git", "rev-parse", "HEAD"]).strip().lower()
+    if not expected:
+        return 0  # no expectation available — cannot check
+    n = min(len(deployed_sha), len(expected))
+    if n < 7:
+        return 1  # too short to be a real sha
+    return 0 if deployed_sha[:n] == expected[:n] else 1
+
+
+def eval_deployed_jsonld_invalid(watchable: dict, signal_def: dict) -> int:
+    """Every application/ld+json block on the deployed page must parse as
+    JSON and (selector '@id', the default) carry a non-empty @id on each
+    node. A registered JSON-LD surface with zero blocks counts as 1."""
+    url = watchable.get("url")
+    if not url:
+        return 0
+    status, body = _fetch_surface(url)
+    if status != 200:
+        return 0
+    import re
+    blocks = re.findall(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        body, re.DOTALL | re.IGNORECASE)
+    if not blocks:
+        return 1
+    selector = signal_def.get("selector", "@id")
+    bad = 0
+    for raw in blocks:
+        try:
+            data = json.loads(raw.strip())
+        except json.JSONDecodeError:
+            bad += 1
+            continue
+        if selector != "@id":
+            continue
+        if isinstance(data, list):
+            nodes = data
+        elif isinstance(data, dict):
+            nodes = data.get("@graph", [data])
+        else:
+            nodes = [data]
+        for node in nodes:
+            if not isinstance(node, dict) or not str(node.get("@id", "")).strip():
+                bad += 1
+                break
+    return bad
+
+
 # ─── Signal dispatch ─────────────────────────────────────────────────
 
 SIGNAL_EVALUATORS = {
@@ -595,6 +730,14 @@ SIGNAL_EVALUATORS = {
     "routing_override_applied": eval_routing_override_applied,
     "bead_reference_stale": eval_bead_reference_stale,
     "bead_count_mismatch": eval_bead_count_mismatch,
+}
+
+# Deployed-surface signals — different signature: they receive the whole
+# watchable + signal_def (they need `url` and per-signal config, not path/mtime)
+SURFACE_SIGNALS = {
+    "deployed_surface_unreachable": eval_deployed_surface_unreachable,
+    "deployed_provenance_drift": eval_deployed_provenance_drift,
+    "deployed_jsonld_invalid": eval_deployed_jsonld_invalid,
 }
 
 # Signals that accept a baseline dict as third argument
@@ -662,11 +805,14 @@ def scan_watchable(watchable: dict, baseline: dict | None = None) -> dict:
         sig_type = signal_def["type"]
         weight = signal_def.get("weight", 1)
 
+        surface_evaluator = SURFACE_SIGNALS.get(sig_type)
         evaluator = SIGNAL_EVALUATORS.get(sig_type)
-        if evaluator is None:
+        if surface_evaluator is None and evaluator is None:
             continue
 
-        if sig_type in THRESHOLD_SIGNALS:
+        if surface_evaluator is not None:
+            count = surface_evaluator(watchable, signal_def)
+        elif sig_type in THRESHOLD_SIGNALS:
             tinfo = THRESHOLD_SIGNALS[sig_type]
             threshold_val = signal_def.get(tinfo["param"], tinfo["default"])
             count = evaluator(path, mtime, threshold_val)
@@ -678,8 +824,11 @@ def scan_watchable(watchable: dict, baseline: dict | None = None) -> dict:
         score = weight * count
         total_score += score
 
-        # Deterministic signals — doc is provably wrong when these fire
-        if sig_type in ("version_bump", "component_count_changed", "bead_reference_stale", "bead_count_mismatch") and count > 0:
+        # Deterministic signals — doc is provably wrong when these fire.
+        # deployed_provenance_drift / deployed_jsonld_invalid qualify: the
+        # fetched surface provably disagrees with the repo. Unreachable does
+        # NOT (transient 5xx would auto-fire hooks on noise).
+        if sig_type in ("version_bump", "component_count_changed", "bead_reference_stale", "bead_count_mismatch", "deployed_provenance_drift", "deployed_jsonld_invalid") and count > 0:
             has_deterministic = True
 
         signals[sig_type] = {
@@ -1038,6 +1187,9 @@ def main():
             continue
         doc_baseline = baselines.get(w["name"])
         result["watchables"][w["name"]] = scan_watchable(w, doc_baseline)
+
+    if _surface_notes:
+        result["surface_notes"] = list(_surface_notes)
 
     json.dump(result, sys.stdout, indent=2)
     print()  # trailing newline
