@@ -29,6 +29,8 @@ locating the project root → silently exit 0 (no decision, no context).
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import json
 import os
 import sys
@@ -152,37 +154,46 @@ def _extract_file_path(payload: dict) -> str | None:
     return fp
 
 
+def _project_relative_path(path: str) -> str | None:
+    """Resolve aliases and missing write targets without matching outside files."""
+    if not isinstance(path, str) or not path:
+        return None
+    try:
+        return Path(path.replace("\\", "/")).resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
 def _match_watchable(rel_path: str, drift: dict) -> tuple[str, dict] | None:
     """Find the watchable whose path covers rel_path.
 
     Match rules:
     - Exact path match wins first.
-    - Directory watchables (path ends in '/' OR points at a real dir): match
-      if rel_path startswith the directory prefix.
+    - Directory watchables (path ends in '/'): match if rel_path startswith
+      the canonical directory prefix.
     """
     watchables = drift.get("watchables", {})
     if not isinstance(watchables, dict):
         return None
 
-    rel_norm = rel_path.replace("\\", "/").lstrip("./")
+    rel_norm = _project_relative_path(rel_path)
+    if rel_norm is None:
+        return None
 
+    candidates = []
     for name, w in watchables.items():
         if not isinstance(w, dict):
             continue
-        wpath = (w.get("path") or "").replace("\\", "/").lstrip("./")
-        if not wpath:
+        wpath = _project_relative_path(w.get("path"))
+        if wpath is None:
             continue
+        candidates.append((name, w, wpath))
         if wpath == rel_norm:
             return name, w
 
-    for name, w in watchables.items():
-        if not isinstance(w, dict):
-            continue
-        wpath = (w.get("path") or "").replace("\\", "/").lstrip("./")
-        if not wpath:
-            continue
-        is_dir_pattern = wpath.endswith("/")
-        if is_dir_pattern and rel_norm.startswith(wpath):
+    for name, w, wpath in candidates:
+        is_dir_pattern = w["path"].replace("\\", "/").endswith("/")
+        if is_dir_pattern and (wpath == "." or rel_norm.startswith(wpath + "/")):
             return name, w
 
     return None
@@ -220,6 +231,13 @@ def _append_log(root: Path, entry: dict) -> None:
         pass
 
 
+def _utc_naive(timestamp: datetime) -> datetime:
+    """Old log timestamps have no offset and denote UTC."""
+    if timestamp.tzinfo is not None:
+        return timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+    return timestamp
+
+
 def _last_fired(entries: list[dict], name: str) -> datetime | None:
     """Most recent 'fired' timestamp for this watchable, or None."""
     for entry in reversed(entries):
@@ -229,24 +247,44 @@ def _last_fired(entries: list[dict], name: str) -> datetime | None:
         if not isinstance(ts, str):
             continue
         try:
-            return datetime.fromisoformat(ts)
+            return _utc_naive(datetime.fromisoformat(ts))
         except ValueError:
             continue
     return None
 
 
-def _fired_today(entries: list[dict]) -> int:
-    """Count of 'fired' events with UTC date == today."""
-    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
+def _fired_today(entries: list[dict], now: datetime) -> int:
+    """Count today's fires, refunding only a bound first no-op outcome.
+
+    Keep legacy unbound events charged: their originating attempt is unknown.
+    Cooldown still sees all fires, preventing no-op loops on the same doc.
+    """
+    today = _utc_naive(now).date()
+    pending = {}
+    refunded = set()
+    seen = set()
+    for index, entry in enumerate(entries):
+        attempt = entry.get("attempt_id")
+        if not isinstance(attempt, str) or not attempt:
+            continue
+        if entry.get("outcome") == "fired" and attempt not in seen:
+            seen.add(attempt)
+            pending[attempt] = (index, entry.get("name"))
+        elif entry.get("outcome") in {"no-op", "refreshed"}:
+            origin = pending.get(attempt)
+            if origin is not None and origin[1] == entry.get("name"):
+                del pending[attempt]
+                if entry["outcome"] == "no-op":
+                    refunded.add(origin[0])
     count = 0
-    for entry in entries:
-        if entry.get("outcome") != "fired":
+    for index, entry in enumerate(entries):
+        if entry.get("outcome") != "fired" or index in refunded:
             continue
         ts = entry.get("ts")
         if not isinstance(ts, str):
             continue
         try:
-            if datetime.fromisoformat(ts).date() == today:
+            if _utc_naive(datetime.fromisoformat(ts)).date() == today:
                 count += 1
         except ValueError:
             continue
@@ -264,19 +302,13 @@ def decide(
 
     Either or both may be None. Tested directly by the test harness.
     """
-    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    now = _utc_naive(now or datetime.now(timezone.utc))
 
     file_path = _extract_file_path(payload)
     if not file_path:
         return None, None
 
-    rel = file_path
-    cwd = str(Path.cwd())
-    if rel.startswith(cwd + "/"):
-        rel = rel[len(cwd) + 1:]
-    rel = rel.lstrip("./")
-
-    match = _match_watchable(rel, drift)
+    match = _match_watchable(file_path, drift)
     if match is None:
         return None, None
 
@@ -324,7 +356,7 @@ def decide(
                     "outcome": "cooldown",
                     "last_fired": last.isoformat(timespec="seconds"),
                 }
-            elif _fired_today(log_entries) >= settings["daily_cap"]:
+            elif _fired_today(log_entries, now) >= settings["daily_cap"]:
                 log_entry = {
                     "ts": now.isoformat(timespec="seconds"),
                     "name": name,
@@ -333,17 +365,21 @@ def decide(
                     "daily_cap": settings["daily_cap"],
                 }
             else:
+                attempt_id = str(uuid4())
                 advisory = (
                     f"INTERWATCH AUTO-FIRE: '{name}' ({watchable.get('path')}) is at "
                     f"Certain drift (score={score}, generator={generator}). "
                     f"Run /interwatch:refresh {name} now before continuing — this doc "
-                    f"is provably out of sync with the codebase."
+                    f"is provably out of sync with the codebase. "
+                    f"Auto-fire attempt: {attempt_id}. Pass --attempt-id {attempt_id} "
+                    f"when recording this refresh so a no-op can refund this attempt."
                 )
                 log_entry = {
                     "ts": now.isoformat(timespec="seconds"),
                     "name": name,
                     "tool": tool_name,
                     "outcome": "fired",
+                    "attempt_id": attempt_id,
                     "generator": generator,
                 }
 

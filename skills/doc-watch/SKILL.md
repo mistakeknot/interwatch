@@ -9,6 +9,12 @@ description: Detect documentation drift, score confidence, and orchestrate refre
 
 You are monitoring documentation freshness. Follow these steps.
 
+Resolve the installed skill symlink before loading its `phases/` and
+`references/`. Plugin scripts live two directories above the resolved skill
+directory (`INTERWATCH_ROOT`). Invoke them by absolute path while keeping the
+target project as the working directory. Slash commands name workflows; use
+the host's callable tools to perform them.
+
 ## Step 1: Load Watchables
 
 Read `doc-watch/references/watchables.md` to understand the watchable registry format, then read the project's `config/watchables.yaml` to get the list of documents to monitor.

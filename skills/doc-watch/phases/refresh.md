@@ -51,11 +51,17 @@ After invoking a generator for any watchable, always record the refresh **before
 ```bash
 # 1. Generator runs and rewrites the doc
 # 2. Record the refresh (compares hash vs. baseline → real or no-op)
-python3 scripts/interwatch-scan.py --record-refresh <watchable-name>
+python3 "$INTERWATCH_ROOT/scripts/interwatch-scan.py" --record-refresh <watchable-name>
 # 3. Commit (the post-commit hook will then update baselines to the new state)
 ```
 
 **Ordering matters.** The post-commit hook overwrites the baseline content_hash to whatever is in HEAD. If you commit before calling `--record-refresh`, the comparison will be hash-vs-itself and the refresh is misclassified as a no-op. The skill must enforce: generator → record-refresh → commit.
+
+For an auto-fire, append `--attempt-id <hook-supplied-id>` from the originating
+advisory or command handoff. Only that bound attempt can receive a no-op budget
+refund. Manual refreshes omit the ID; legacy unbound fires remain charged.
+Keep the target project as the working directory and use the resolved plugin
+path for `INTERWATCH_ROOT`. Cooldown still includes no-op fires.
 
 The output JSON tells you what happened:
 ```json

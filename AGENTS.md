@@ -88,12 +88,12 @@ Goodhart guardrails (all enforced together; auto-fire requires all to pass):
 - **Master kill-switch.** `auto_refresh.enabled: false` disables auto-fire entirely (advisory still emitted).
 - **Per-watchable opt-out.** `auto_refresh.watchables.<name>.enabled: false`.
 - **Generator presence.** Watchables with `generator: null` never auto-fire (no command to dispatch).
-- **No-op refresh detection.** When `--record-refresh` runs, it compares current `content_hash` to baseline. Identical → outcome=`no-op`, baselines untouched, no budget consumed.
+- **No-op refresh detection.** `--record-refresh` compares current `content_hash` to baseline. Identical → outcome=`no-op`, baselines untouched. Pass the originating hook's `--attempt-id` to refund that fire exactly once. Manual refreshes and legacy events without IDs cannot refund a guessed attempt. Cooldown still applies after a no-op.
 
 State files:
 - `.interwatch/drift.json` — current scan output, watchable confidence levels (read by hook)
 - `.interwatch/last-scan.json` — bead-count baselines + per-watchable `content_hash`
-- `.interwatch/auto-refresh.log` — append-only JSONL of every fire decision (`fired`, `cooldown`, `budget`, `disabled`, `no_generator`, `no-op`)
+- `.interwatch/auto-refresh.log` — append-only JSONL of fire decisions and outcomes (`fired`, `cooldown`, `budget`, `disabled`, `no_generator`, `no-op`, `refreshed`)
 - `.interwatch/project.yaml` — optional config (template at `config/project.yaml.example`)
 
 Fail-open everywhere: missing drift.json, broken JSON input, no python3, no yaml, no generator → silent exit 0.

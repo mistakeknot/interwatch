@@ -22,7 +22,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -118,6 +118,34 @@ def _append_autorefresh_log(entry: dict) -> None:
             f.write(json.dumps(entry) + "\n")
     except OSError:
         pass
+
+
+def _pending_autorefresh_attempt(doc_name: str, attempt_id: str | None) -> str | None:
+    """Validate a caller-supplied fire; never guess from a doc's latest event."""
+    if not attempt_id:
+        return None
+    pending = {}
+    seen = set()
+    try:
+        with open(AUTOREFRESH_LOG) as stream:
+            for line in stream:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict) or entry.get("name") != doc_name:
+                    continue
+                attempt = entry.get("attempt_id")
+                if not isinstance(attempt, str) or not attempt:
+                    continue
+                if entry.get("outcome") == "fired" and attempt not in seen:
+                    seen.add(attempt)
+                    pending[attempt] = None
+                elif entry.get("outcome") in {"no-op", "refreshed"}:
+                    pending.pop(attempt, None)
+    except OSError:
+        return None
+    return attempt_id if attempt_id in pending else None
 
 
 def run_cmd(cmd: list[str], cwd: str | None = None) -> str:
@@ -1067,7 +1095,7 @@ def write_discovered_config(watchables: list[dict], project_root: str) -> str:
     return out_path
 
 
-def record_refresh(doc_name: str) -> dict:
+def record_refresh(doc_name: str, attempt_id: str | None = None) -> dict:
     """Reset baselines for a specific doc after a generator refresh.
 
     Updates last-scan.json to record that the doc was just regenerated,
@@ -1090,7 +1118,8 @@ def record_refresh(doc_name: str) -> dict:
     prior_hash = prior.get("content_hash", "")
 
     is_noop = bool(new_hash) and bool(prior_hash) and new_hash == prior_hash
-    now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    attempt_id = _pending_autorefresh_attempt(doc_name, attempt_id)
 
     if is_noop:
         _append_autorefresh_log({
@@ -1098,6 +1127,7 @@ def record_refresh(doc_name: str) -> dict:
             "name": doc_name,
             "tool": "record-refresh",
             "outcome": "no-op",
+            "attempt_id": attempt_id,
             "content_hash": new_hash,
         })
         return {
@@ -1119,6 +1149,15 @@ def record_refresh(doc_name: str) -> dict:
     state["last_updated"] = now_iso
     save_last_scan(state)
 
+    _append_autorefresh_log({
+        "ts": now_iso,
+        "name": doc_name,
+        "tool": "record-refresh",
+        "outcome": "refreshed",
+        "attempt_id": attempt_id,
+        "content_hash": new_hash,
+    })
+
     return {
         "recorded_refresh": doc_name,
         "outcome": "refreshed",
@@ -1135,6 +1174,7 @@ def main():
                         help="Write baselines to .interwatch/last-scan.json after scan")
     parser.add_argument("--record-refresh", metavar="DOC_NAME",
                         help="Reset baselines for a doc after refresh (e.g., 'roadmap')")
+    parser.add_argument("--attempt-id", help="Originating auto-fire ID from the hook advisory; enables a bound no-op refund")
     parser.add_argument("--discover", action="store_true",
                         help="Auto-discover watchables, write .interwatch/watchables.yaml, then scan")
     parser.add_argument("--rediscover", action="store_true",
@@ -1145,7 +1185,7 @@ def main():
 
     # Handle --record-refresh: update baselines (or detect no-op) and exit
     if args.record_refresh:
-        result = record_refresh(args.record_refresh)
+        result = record_refresh(args.record_refresh, args.attempt_id)
         print(json.dumps(result))
         return
 

@@ -29,7 +29,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -155,6 +155,28 @@ class DecideUnitTests(unittest.TestCase):
         out, log = hook.decide(self._payload(str(self.cwd / "docs/newdoc.md")), drift, {}, prior_log, now=self.now)
         self.assertEqual(log["outcome"], "fired")
 
+    def test_daily_budget_uses_utc_date_for_offset_timestamps(self) -> None:
+        now = datetime(2026, 4, 28, 0, 30, tzinfo=timezone.utc)
+        prior_log = [
+            {"ts": "2026-04-27T20:00:00-04:00", "name": f"doc{i}", "outcome": "fired"}
+            for i in range(5)
+        ]
+        drift = _drift({"newdoc": _watchable("docs/newdoc.md", "Certain")})
+        _, log = hook.decide(self._payload("docs/newdoc.md"), drift, {}, prior_log, now=now)
+        self.assertEqual(log["outcome"], "budget")
+
+    def test_cooldown_accepts_offset_timestamps_with_naive_utc_clock(self) -> None:
+        prior_log = [{"ts": "2026-04-27T16:00:00-04:00", "name": "doc", "outcome": "fired"}]
+        drift = _drift({"doc": _watchable("doc.md", "Certain")})
+        _, log = hook.decide(self._payload("doc.md"), drift, {}, prior_log, now=self.now)
+        self.assertEqual(log["outcome"], "cooldown")
+
+    def test_parent_traversal_does_not_match_project_watchable(self) -> None:
+        drift = _drift({"doc": _watchable("watched.md", "High")})
+        out, log = hook.decide(self._payload("../watched.md"), drift, {}, [], now=self.now)
+        self.assertIsNone(out)
+        self.assertIsNone(log)
+
     def test_kill_switch_blocks_autofire(self) -> None:
         cfg = {"auto_refresh": {"enabled": False}}
         drift = _drift({"roadmap": _watchable("docs/roadmap.md", "Certain")})
@@ -233,6 +255,48 @@ class SubprocessSyntheticTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout.strip(), "")
+
+    def test_project_symlink_and_missing_write_target_are_canonicalized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            project = tmp / "project"
+            project.mkdir()
+            (project / ".git").mkdir()
+            (project / ".interwatch").mkdir()
+            (project / ".interwatch" / "drift.json").write_text(json.dumps(_drift({
+                "x": _watchable("watched.md", "High"),
+            })))
+            alias = tmp / "alias"
+            alias.symlink_to(project, target_is_directory=True)
+            result = subprocess.run(
+                ["bash", str(HOOK_SH)],
+                input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(alias / "watched.md")}}),
+                capture_output=True, text=True, cwd=project, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("High", json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"])
+
+    def test_external_symlink_does_not_match_directory_watchable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            project = tmp / "project"
+            project.mkdir()
+            (project / ".git").mkdir()
+            (project / "docs").mkdir()
+            outside = tmp / "outside.md"
+            outside.write_text("external\n")
+            (project / "docs" / "escape.md").symlink_to(outside)
+            (project / ".interwatch").mkdir()
+            (project / ".interwatch" / "drift.json").write_text(json.dumps(_drift({
+                "docs": _watchable("docs/", "High"),
+            })))
+            result = subprocess.run(
+                ["bash", str(HOOK_SH)],
+                input=json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(project / "docs/escape.md")}}),
+                capture_output=True, text=True, cwd=project, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
 
     def test_advisory_emitted_for_high_watchable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -374,6 +438,46 @@ class RealEnvironmentTests(unittest.TestCase):
 
 class RecordRefreshNoopTests(unittest.TestCase):
     """Verify --record-refresh detects no-op refreshes via content_hash."""
+
+    def test_noop_refunds_only_its_attempt_and_preserves_cooldown(self) -> None:
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / ".interwatch"
+            state.mkdir()
+            (root / "doc.md").write_text("same\n")
+            (state / "watchables.yaml").write_text("watchables:\n  - name: doc\n    path: doc.md\n    signals: []\n")
+            (state / "last-scan.json").write_text(json.dumps({"baselines": {
+                "doc": {"content_hash": hashlib.sha256(b"same\n").hexdigest()}}}))
+            now = datetime.now(timezone.utc)
+            drift = _drift({"doc": _watchable("doc.md", "Certain")})
+            _, fire = hook.decide({"tool_name": "Read", "tool_input": {"file_path": "doc.md"}}, drift, {}, [], now=now)
+            hook._append_log(root, fire)
+            for args in ([], ["--attempt-id", "unrelated-attempt"]):
+                manual = subprocess.run([sys.executable, str(SCAN_PY), "--record-refresh", "doc", *args], cwd=root, capture_output=True, text=True, timeout=10)
+                self.assertEqual(manual.returncode, 0, manual.stderr)
+                self.assertEqual(hook._fired_today(hook._load_log(root), now), 1)
+            result = subprocess.run([sys.executable, str(SCAN_PY), "--record-refresh", "doc", "--attempt-id", fire["attempt_id"]], cwd=root, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            entries = hook._load_log(root)
+            self.assertEqual(hook._fired_today(entries, now), 0)
+            self.assertEqual(entries[-1]["attempt_id"], fire["attempt_id"])
+            self.assertIsNotNone(hook._last_fired(entries, "doc"))
+            # A duplicate no-op cannot refund an unrelated fire or this fire twice.
+            other = dict(fire, name="other", attempt_id="other-attempt")
+            self.assertEqual(hook._fired_today(entries + [other, entries[-1]], now), 1)
+
+    def test_real_refresh_cannot_be_refunded_by_later_manual_noop(self) -> None:
+        now = datetime.now(timezone.utc)
+        fire = {"ts": now.isoformat(), "name": "doc", "outcome": "fired", "attempt_id": "attempt"}
+        refreshed = dict(fire, outcome="refreshed")
+        noop = dict(fire, outcome="no-op")
+        self.assertEqual(hook._fired_today([fire, refreshed, noop], now), 1)
+
+    def test_unbound_legacy_noop_does_not_guess_a_refund(self) -> None:
+        now = datetime.now(timezone.utc)
+        fire = {"ts": now.isoformat(), "name": "doc", "outcome": "fired"}
+        self.assertEqual(hook._fired_today([fire, dict(fire, outcome="no-op")], now), 1)
 
     def test_noop_detected_when_hash_matches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,12 +2,18 @@
 
 Monitor documentation freshness using pre-computed drift signals.
 
+Resolve the installed skill symlink first. Set `INTERWATCH_ROOT` to the plugin
+directory two levels above the resolved skill directory. Keep the working
+directory at the target project; plugin scripts inspect that working directory.
+Resolve phase/reference files against the skill directory. Use available host
+tools for the named workflows; slash commands are not shell commands.
+
 ## Algorithm
 
 ### Step 1: Run Pre-computation
 
 ```bash
-python3 scripts/interwatch-scan.py --discover --save-state
+python3 "$INTERWATCH_ROOT/scripts/interwatch-scan.py" --discover --save-state
 ```
 
 This auto-discovers watchable docs on first run and caches the config in `.interwatch/watchables.yaml`. Use `--rediscover` to force re-detection after adding new docs. Use `--discover-only` to write config without scanning.
@@ -45,10 +51,17 @@ Common generators:
 State is auto-managed when `--save-state` is passed in Step 1. After **refreshing** a specific doc (Steps 2-3), record the refresh **before committing**:
 
 ```bash
-python3 scripts/interwatch-scan.py --record-refresh <watchable-name>
+python3 "$INTERWATCH_ROOT/scripts/interwatch-scan.py" --record-refresh <watchable-name>
 ```
 
 This resets bead count baselines and detects no-op refreshes (generator produced byte-identical output → outcome `no-op`, baselines untouched, daily auto-fire budget not consumed). Order is **generator → record-refresh → commit**: the post-commit hook updates the baseline `content_hash`, so calling `--record-refresh` after committing breaks no-op detection.
+
+Budget refunds require the originating auto-fire's recorded attempt identity.
+When the hook supplies an auto-fire attempt ID, append `--attempt-id <that-id>`
+to the record-refresh command. Manual refreshes omit it; never select an ID
+from another attempt just to obtain a refund.
+Legacy entries without that identity remain charged; no attribution is guessed.
+The cooldown still applies after a no-op to prevent repeated refresh loops.
 
 ## Modes
 
