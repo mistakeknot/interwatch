@@ -74,3 +74,15 @@ def test_stamp_goes_stale_after_new_commit(scan_module, repo):
     _git(repo, "commit", "-qam", "next")
     new = scan_module.build_provenance(str(repo), str(repo))
     assert old["repo_commit"] != new["repo_commit"]
+
+
+def test_change_outside_tool_subdir_makes_tool_dirty(scan_module, repo):
+    """Regression: the tool lives in scripts/; a change elsewhere in its repo is dirty."""
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "t.py").write_text("x\n")
+    _git(repo, "add", "scripts/t.py")
+    _git(repo, "commit", "-q", "-m", "tool")
+    tool = repo / "scripts"
+    assert scan_module.build_provenance(str(repo), str(tool))["tool_dirty"] is False
+    (repo / "a.txt").write_text("changed outside the tool dir\n")
+    assert scan_module.build_provenance(str(repo), str(tool))["tool_dirty"] is True

@@ -192,6 +192,17 @@ def save_last_scan(state: dict) -> None:
         f.write("\n")
 
 
+def _git_status(top: str) -> str | None:
+    try:
+        r = subprocess.run(
+            ["git", "-C", top, "status", "--porcelain", "--", ":/",
+             ":(exclude,glob)**/.interwatch/**"],
+            capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def _git_state(path: str) -> tuple[str | None, bool | None]:
     """Return (HEAD sha, dirty) for the repo at path; None means unknown.
 
@@ -207,7 +218,10 @@ def _git_state(path: str) -> tuple[str | None, bool | None]:
 
     sha = git("rev-parse", "HEAD")
     # Our own output dir does not count as a change to the repo.
-    status = git("status", "--porcelain", "--", ".", ":(exclude).interwatch")
+    # Run from the repo toplevel so changes outside `path` (a subdirectory such
+    # as the tool's scripts/) still count; a "." pathspec would hide them.
+    top = git("rev-parse", "--show-toplevel")
+    status = None if top is None else _git_status(top)
     return sha, (None if status is None else bool(status))
 
 
