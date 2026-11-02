@@ -192,9 +192,46 @@ def save_last_scan(state: dict) -> None:
         f.write("\n")
 
 
+def _git_state(path: str) -> tuple[str | None, bool | None]:
+    """Return (HEAD sha, dirty) for the repo at path; None means unknown.
+
+    Unlike run_cmd, a git failure is never reported as a clean tree.
+    """
+    def git(*args: str) -> str | None:
+        try:
+            r = subprocess.run(["git", "-C", path, *args], capture_output=True,
+                               text=True, timeout=30)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return None
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    sha = git("rev-parse", "HEAD")
+    # Our own output dir does not count as a change to the repo.
+    status = git("status", "--porcelain", "--", ".", ":(exclude).interwatch")
+    return sha, (None if status is None else bool(status))
+
+
+def build_provenance(repo_dir: str = ".", tool_dir: str | None = None) -> dict:
+    """Stamp which repo state and tool version produced a drift report.
+
+    A reader compares repo_commit and tool_commit with current values to see
+    whether the report is stale. Unknown values are None, never a guess.
+    """
+    tool_dir = tool_dir or os.path.dirname(os.path.abspath(__file__))
+    repo_commit, repo_dirty = _git_state(repo_dir)
+    tool_commit, tool_dirty = _git_state(tool_dir)
+    return {
+        "repo_commit": repo_commit,
+        "repo_dirty": repo_dirty,
+        "tool_commit": tool_commit,
+        "tool_dirty": tool_dirty,
+    }
+
+
 def save_drift(result: dict) -> None:
-    """Write full scan results to drift.json."""
+    """Write full scan results to drift.json, stamped with provenance."""
     os.makedirs(STATE_DIR, exist_ok=True)
+    result = {**result, "provenance": build_provenance()}
     with open(DRIFT_FILE, "w") as f:
         json.dump(result, f, indent=2)
         f.write("\n")
